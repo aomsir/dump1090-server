@@ -296,3 +296,118 @@ type MagBuf struct {
 	Dropped         uint32    // Number of dropped samples preceding this buffer
 	TotalPower      float64   // Sum of per-sample input power, or 0 if not measured
 }
+
+// DataValidity tracks the validity and freshness of a piece of data.
+// Each field in Aircraft has an associated DataValidity to track when
+// it was last updated and from what source.
+type DataValidity struct {
+	Source  DataSource // Where the data came from
+	Updated uint64     // Timestamp (milliseconds) when data arrived
+	Stale   uint64     // Timestamp when data becomes stale
+	Expires uint64     // Timestamp when data expires
+}
+
+// Aircraft tracking constants
+const (
+	TRACK_AIRCRAFT_TTL        = 300000 // Maximum age of tracked aircraft (5 minutes)
+	TRACK_AIRCRAFT_ONEHIT_TTL = 60000  // Maximum age for aircraft with only 1 message (1 minute)
+)
+
+// Mode A/C flags
+const (
+	MODEAC_MSG_FLAG        = 1 << 0 // Synthetic ICAO from Mode A/C
+	MODEAC_MSG_MODES_HIT   = 1 << 1 // This Mode A/C matches a known Mode S
+	MODEAC_MSG_MODEA_HIT   = 1 << 2 // This Mode S matches a known Mode A
+	MODEAC_MSG_MODEC_HIT   = 1 << 3 // This Mode S matches a known Mode C
+	MODEAC_MSG_MODEA_ONLY  = 1 << 4 // This Mode A/C is from a Mode A only roll call
+	MODEAC_MSG_MODEC_OLD   = 1 << 5 // This Mode A/C has previously been Mode C matched
+)
+
+// Aircraft represents the state of one tracked aircraft.
+// This struct parallels the C struct aircraft in track.h.
+type Aircraft struct {
+	Addr     uint32   // ICAO address
+	AddrType AddrType // Highest priority address type seen
+
+	Seen     uint64 // Time (millis) at which last packet was received
+	Messages int64  // Number of Mode S messages received
+
+	SignalLevel [8]float64 // Last 8 signal amplitudes (RSSI)
+	SignalNext  int        // Next index in signalLevel to use
+
+	// Callsign
+	CallsignValid DataValidity
+	Callsign      [9]byte // Flight number
+
+	// Barometric altitude
+	AltitudeValid  DataValidity
+	Altitude       int      // Altitude (feet, barometric)
+	AltitudeModeC  uint32   // Altitude as Mode C value (100ft increments)
+
+	// GNSS altitude
+	AltitudeGNSSValid DataValidity
+	AltitudeGNSS      int // Altitude (feet, GNSS)
+
+	// GNSS delta
+	GNSSDeltaValid DataValidity
+	GNSSDelta      int // Difference between GNSS and baro altitude
+
+	// Speed
+	SpeedValid    DataValidity
+	Speed         uint32 // Ground speed (kts)
+	SpeedIASValid DataValidity
+	SpeedIAS      uint32 // Indicated airspeed
+	SpeedTASValid DataValidity
+	SpeedTAS      uint32 // True airspeed
+
+	// Heading
+	HeadingValid         DataValidity
+	Heading              uint32 // True track/heading
+	HeadingMagneticValid DataValidity
+	HeadingMagnetic      uint32 // Magnetic heading
+
+	// Vertical rate
+	VertRateValid  DataValidity
+	VertRate       int            // Vertical rate (feet/min)
+	VertRateSource AltitudeSource // Source (baro or GNSS)
+
+	// Squawk
+	SquawkValid DataValidity
+	Squawk      uint32 // 4-digit squawk code
+
+	// Category
+	CategoryValid DataValidity
+	Category      uint32 // Aircraft category (A0-D7)
+
+	// Air/ground state
+	AirGroundValid DataValidity
+	AirGround      AirGround
+
+	// CPR odd frame
+	CPROddValid DataValidity
+	CPROddType  CPRType
+	CPROddLat   uint32
+	CPROddLon   uint32
+	CPROddNUC   uint32
+
+	// CPR even frame
+	CPREvenValid DataValidity
+	CPREvenType  CPRType
+	CPREvenLat   uint32
+	CPREvenLon   uint32
+	CPREvenNUC   uint32
+
+	// Decoded position
+	PositionValid DataValidity
+	Lat           float64 // Latitude
+	Lon           float64 // Longitude
+	PosNUC        uint32  // NUCp of last computed position
+
+	// Mode A/C correlation
+	ModeACount  int64 // Mode A squawk hit count
+	ModeCCount  int64 // Mode C altitude hit count
+	ModeACFlags int   // Flags for Mode A/C recognition
+
+	// First message received (for deferred output)
+	FirstMessage Message
+}

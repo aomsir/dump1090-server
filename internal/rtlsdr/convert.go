@@ -227,3 +227,53 @@ func (s *ConverterState) Reset() {
 	s.z1I = 0
 	s.z1Q = 0
 }
+
+// ConvertSC16Q11 converts signed 16-bit IQ samples with Q11 scaling to magnitude
+// This format is used by USRP B200 and RTL-SDR Pro Plus devices
+// The samples are 11-bit quantization scaled to 16-bit, so divide by 2048 instead of 32768
+// iq is interleaved I,Q,I,Q... data (little-endian)
+// mag is the output magnitude buffer (must be len(iq)/4)
+// Returns total power (normalized)
+func (s *ConverterState) ConvertSC16Q11(iq []byte, mag []uint16) float64 {
+	nsamples := len(iq) / 4
+	if len(mag) < nsamples {
+		return 0
+	}
+
+	var power float32
+	z1I := s.z1I
+	z1Q := s.z1Q
+	dcA := s.dcA
+	dcB := s.dcB
+
+	for i := 0; i < nsamples; i++ {
+		idx := i * 4
+		// Little-endian 16-bit signed
+		I := int16(uint16(iq[idx]) | uint16(iq[idx+1])<<8)
+		Q := int16(uint16(iq[idx+2]) | uint16(iq[idx+3])<<8)
+
+		// Convert to float [-1, 1] using Q11 scaling (divide by 2048)
+		fI := float32(I) / 2048.0
+		fQ := float32(Q) / 2048.0
+
+		// DC block filter
+		z1I = fI*dcA + z1I*dcB
+		z1Q = fQ*dcA + z1Q*dcB
+		fI -= z1I
+		fQ -= z1Q
+
+		// Magnitude squared
+		magsq := fI*fI + fQ*fQ
+		if magsq > 1.0 {
+			magsq = 1.0
+		}
+
+		power += magsq
+		mag[i] = uint16(math.Sqrt(float64(magsq))*65535.0 + 0.5)
+	}
+
+	s.z1I = z1I
+	s.z1Q = z1Q
+
+	return float64(power)
+}

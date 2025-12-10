@@ -614,3 +614,273 @@ type DemodStats struct {
 	PeakSignalPower     float64
 	StrongSignalCount   int64
 }
+
+// Demodulate2400AC demodulates Mode A/C replies from magnitude samples at 2.4MHz.
+// Mode A/C (SSR) uses a different modulation scheme than Mode S:
+// - Each bit period is 1.45us (87 samples at 60MHz, ~3.5 samples at 2.4MHz)
+// - Pulse width is 0.45us (about 1 sample at 2.4MHz)
+// - F1 and F2 framing pulses bracket the data
+//
+// Bit layout (24 bits total):
+//
+//	bit  value  meaning
+//	-1    0     quiet zone
+//	 0    1     F1 (framing pulse 1)
+//	 1   C1     \
+//	 2   A1      |
+//	 3   C2      |
+//	 4   A2      | data bits
+//	 5   C4      |
+//	 6   A4     /
+//	 7    0     X1 (quiet zone)
+//	 8   B1     \
+//	 9   D1      |
+//	10   B2      |
+//	11   D2      | data bits
+//	12   B4      |
+//	13   D4     /
+//	14    1     F2 (framing pulse 2)
+//	15    0     X2 (quiet zone)
+//	16    0     X3 (quiet zone)
+//	17   SPI    squawk ident
+//	18    0     X4 (quiet zone)
+//	19-23  0    X5-X9 (quiet zone)
+func (d *Demodulator) Demodulate2400AC(mag *MagBuf) {
+	if mag == nil || len(mag.Data) == 0 {
+		return
+	}
+
+	m := mag.Data
+	mlen := int(mag.Length)
+
+	// At 2.4MHz sample rate:
+	// - 1 bit period = 87/25 samples ≈ 3.48 samples
+	// - F1 pulse covers about 3.5 samples
+	// - F2 is 14 bit periods after F1
+
+	for f1Sample := 1; f1Sample < mlen-100; f1Sample++ {
+		// Look for rising edge (start of F1)
+		if m[f1Sample-1] >= m[f1Sample] {
+			continue // not a rising edge
+		}
+
+		// Check quiet part of F1 bit
+		if m[f1Sample+2] > m[f1Sample] || m[f1Sample+2] > m[f1Sample+1] {
+			continue // quiet part wasn't sufficiently quiet
+		}
+
+		// Estimate F1 signal and noise levels
+		f1Noise := (uint32(m[f1Sample-1]) + uint32(m[f1Sample+2])) / 2
+		f1Signal := (uint32(m[f1Sample]) + uint32(m[f1Sample+1])) / 2
+
+		// Require 12dB SNR (signal > 4 * noise)
+		if f1Noise*4 > f1Signal {
+			continue
+		}
+
+		// Estimate initial clock phase based on power distribution
+		// Clock is in units of 1/25 sample (to match C version's 87 units per bit)
+		f1Clock := uint32(25 * f1Sample)
+		if m[f1Sample+1] > uint16(f1Noise) {
+			f1Clock += 25 * uint32(m[f1Sample+1]-uint16(f1Noise)) / (2 * (f1Signal - f1Noise))
+		}
+
+		// Find F2: 14 bit periods after F1
+		// Each bit period is 87/25 samples, so 14*87 = 1218 clock units
+		f2Clock := f1Clock + (87 * 14)
+		f2Sample := int(f2Clock / 25)
+
+		if f2Sample+3 >= mlen {
+			break // not enough samples
+		}
+
+		// Check F2 rising edge
+		if m[f2Sample-1] >= m[f2Sample] {
+			continue
+		}
+
+		// Check F2 quiet part
+		if m[f2Sample+2] > m[f2Sample] || m[f2Sample+2] > m[f2Sample+1] {
+			continue
+		}
+
+		// Estimate F2 signal and noise
+		f2Noise := (uint32(m[f2Sample-1]) + uint32(m[f2Sample+2])) / 2
+		f2Signal := (uint32(m[f2Sample]) + uint32(m[f2Sample+1])) / 2
+
+		// Require 12dB SNR
+		if f2Noise*4 > f2Signal {
+			continue
+		}
+
+		f1f2Signal := (f1Signal + f2Signal) / 2
+
+		// Check X1 quiet zone (bit 7)
+		x1Clock := f1Clock + (87 * 7)
+		x1Sample := int(x1Clock / 25)
+		x1Noise := (uint32(m[x1Sample]) + uint32(m[x1Sample+1]) + uint32(m[x1Sample+2])) / 3
+		if x1Noise*4 >= f1f2Signal {
+			continue
+		}
+
+		// Check X2 quiet zone (bit 15)
+		x2Clock := f1Clock + (87 * 15)
+		x2Sample := int(x2Clock / 25)
+		x2Noise := (uint32(m[x2Sample]) + uint32(m[x2Sample+1]) + uint32(m[x2Sample+2])) / 3
+		if x2Noise*4 >= f1f2Signal {
+			continue
+		}
+
+		// Check X3 quiet zone (bit 16)
+		x3Clock := f1Clock + (87 * 16)
+		x3Sample := int(x3Clock / 25)
+		x3Noise := (uint32(m[x3Sample]) + uint32(m[x3Sample+1]) + uint32(m[x3Sample+2])) / 3
+		if x3Noise*4 >= f1f2Signal {
+			continue
+		}
+
+		// Combined noise from quiet zones
+		x1x2x3Noise := (x1Noise + x2Noise + x3Noise) / 3
+		if x1x2x3Noise*4 >= f1f2Signal {
+			continue // require 12dB separation
+		}
+
+		// Calculate thresholds using geometric mean for midpoint
+		// This ensures signal/midpoint == midpoint/noise
+		midpoint := sqrt32(float32(x1x2x3Noise * f1f2Signal))
+		quietThreshold := uint32(midpoint)
+		noiseThreshold := uint32(midpoint*0.707107 + 0.5)  // -3dB from midpoint
+		signalThreshold := uint32(midpoint*1.414214 + 0.5) // +3dB from midpoint
+
+		// Recheck F/X bits with calculated thresholds
+		if f1Signal < signalThreshold || f2Signal < signalThreshold {
+			continue
+		}
+		if x1Noise > noiseThreshold || x2Noise > noiseThreshold || x3Noise > noiseThreshold {
+			continue
+		}
+
+		// Demodulate all 24 bits
+		var bits uint32
+		var noisyBits uint32
+		clock := f1Clock
+
+		for bit := 0; bit < 24; bit++ {
+			sample := int(clock / 25)
+			if sample+3 >= mlen {
+				break
+			}
+
+			bits <<= 1
+			noisyBits <<= 1
+
+			// Check for excessive noise in quiet period
+			if uint32(m[sample+2]) >= quietThreshold {
+				noisyBits |= 1
+				clock += 87
+				continue
+			}
+
+			// Decide if bit is on or off
+			bitSignal := (uint32(m[sample]) + uint32(m[sample+1])) / 2
+			if bitSignal >= signalThreshold {
+				bits |= 1
+			} else if bitSignal > noiseThreshold {
+				// Uncertain bit
+				noisyBits |= 1
+			}
+
+			clock += 87
+		}
+
+		// Reject if any bits were noisy
+		if noisyBits != 0 {
+			continue
+		}
+
+		// Framing bits (F1=bit0, F2=bit14) must be on
+		if bits&0x800200 != 0x800200 {
+			continue
+		}
+
+		// Quiet bits (X1=bit7, X2-X9=bits15-23 except SPI=bit17) must be off
+		// Mask: 0000 0001 0000 0001 1011 1111 = 0x0101BF
+		if bits&0x0101BF != 0 {
+			continue
+		}
+
+		// Convert bit layout to standard Mode A/C format:
+		// 00 A4 A2 A1  00 B4 B2 B1  SPI C4 C2 C1  00 D4 D2 D1
+		modeAC := uint32(0)
+		if bits&0x400000 != 0 {
+			modeAC |= 0x0010
+		} // C1
+		if bits&0x200000 != 0 {
+			modeAC |= 0x1000
+		} // A1
+		if bits&0x100000 != 0 {
+			modeAC |= 0x0020
+		} // C2
+		if bits&0x080000 != 0 {
+			modeAC |= 0x2000
+		} // A2
+		if bits&0x040000 != 0 {
+			modeAC |= 0x0040
+		} // C4
+		if bits&0x020000 != 0 {
+			modeAC |= 0x4000
+		} // A4
+		if bits&0x008000 != 0 {
+			modeAC |= 0x0100
+		} // B1
+		if bits&0x004000 != 0 {
+			modeAC |= 0x0001
+		} // D1
+		if bits&0x002000 != 0 {
+			modeAC |= 0x0200
+		} // B2
+		if bits&0x001000 != 0 {
+			modeAC |= 0x0002
+		} // D2
+		if bits&0x000800 != 0 {
+			modeAC |= 0x0400
+		} // B4
+		if bits&0x000400 != 0 {
+			modeAC |= 0x0004
+		} // D4
+		if bits&0x000040 != 0 {
+			modeAC |= 0x0080
+		} // SPI
+
+		// Decode the Mode A/C message
+		mm := DecodeModeAMessage(int(modeAC))
+		if mm == nil {
+			continue
+		}
+
+		// Set timestamp
+		mm.Timestamp = mag.SampleTimestamp + uint64(f1Clock/5) // 60MHz -> 12MHz
+
+		// Pass to handler
+		if d.messageHandler != nil {
+			d.messageHandler(mm)
+		}
+
+		// Skip past this message (24 bits * 87/25 samples ≈ 83 samples)
+		f1Sample += int(24 * 87 / 25)
+		d.stats.modeAC++
+	}
+}
+
+// sqrt32 computes the square root of a float32
+func sqrt32(x float32) float32 {
+	if x <= 0 {
+		return 0
+	}
+	// Newton-Raphson iteration
+	r := x
+	for i := 0; i < 10; i++ {
+		r = (r + x/r) / 2
+	}
+	return r
+}

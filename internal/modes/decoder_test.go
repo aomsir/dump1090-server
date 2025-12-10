@@ -96,8 +96,8 @@ func TestDecodeModesMessage_DF17_Callsign(t *testing.T) {
 
 func TestDecodeModesMessage_DF17_AirbornePosition(t *testing.T) {
 	// DF17 airborne position message (even frame)
-	// This is a synthetic test message
-	msgHex := "8D4840D6580B90000000000000F0"
+	// Type 11 (airborne position, baro alt), ICAO 4840D6, valid CRC
+	msgHex := "8D4840D658C35000000000A2DC26"
 	msg := mustDecodeHex(msgHex)
 
 	// Initialize CRC tables
@@ -181,7 +181,7 @@ func TestDecodeAC12Field(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := decodeAC12Field(tt.ac12)
+			got, _ := decodeAC12Field(tt.ac12)
 			if got != tt.expected {
 				t.Errorf("decodeAC12Field(0x%03X) = %d, want %d", tt.ac12, got, tt.expected)
 			}

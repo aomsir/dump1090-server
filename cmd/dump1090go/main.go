@@ -90,9 +90,13 @@ type Config struct {
 	MaxRange  float64
 
 	// Other settings
-	Quiet     bool
-	FixCRC    bool
+	Quiet      bool
+	FixCRC     bool
 	Aggressive bool
+	Metric     bool
+
+	// Net-only mode
+	NetOnly bool
 }
 
 // App holds the application state
@@ -199,7 +203,11 @@ func main() {
 
 	// Run main processing
 	var err error
-	if config.InputFile != "" {
+	if config.NetOnly {
+		// Net-only mode: just wait for shutdown
+		log.Println("Running in network-only mode")
+		<-app.ctx.Done()
+	} else if config.InputFile != "" {
 		err = app.processFile(config.InputFile)
 	} else if config.Filename != "" {
 		err = app.processFile(config.Filename)
@@ -264,6 +272,10 @@ func parseFlags() *Config {
 	flag.BoolVar(&config.Quiet, "quiet", false, "Suppress output")
 	flag.BoolVar(&config.FixCRC, "fix", false, "Fix single-bit CRC errors")
 	flag.BoolVar(&config.Aggressive, "aggressive", false, "Fix two-bit CRC errors")
+	flag.BoolVar(&config.Metric, "metric", false, "Use metric units")
+
+	// Net-only mode
+	flag.BoolVar(&config.NetOnly, "net-only", false, "Network only mode, no RTL-SDR device")
 
 	flag.Parse()
 

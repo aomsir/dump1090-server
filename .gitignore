@@ -1,6 +1,6 @@
 # Go binaries
-dump1090go
-view1090go
+/dump1090go
+/view1090go
 *.exe
 *.dll
 *.so

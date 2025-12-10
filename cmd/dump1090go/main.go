@@ -33,9 +33,15 @@ const (
 	defaultSampleRate = 2400000    // 2.4 MHz
 	defaultGain       = -1         // Auto gain
 	defaultHTTPPort   = 8080
-	defaultBeastPort  = 30005
-	defaultAVRPort    = 30002
-	defaultSBSPort    = 30003
+
+	// Network output ports
+	defaultBeastOutPort = 30005
+	defaultAVROutPort   = 30002
+	defaultSBSPort      = 30003
+
+	// Network input ports
+	defaultRawInPort   = 30001
+	defaultBeastInPort = 30004
 
 	// Buffer sizes
 	asyncBufNum = 12
@@ -62,15 +68,21 @@ type Config struct {
 	InputFile string
 	Filename  string
 
-	// Network settings
+	// Network output settings
 	HTTPPort     int
-	BeastPort    int
-	AVRPort      int
+	BeastOutPort int
+	AVROutPort   int
 	SBSPort      int
 	DisableHTTP  bool
 	DisableBeast bool
 	DisableAVR   bool
 	DisableSBS   bool
+
+	// Network input settings
+	RawInPort      int
+	BeastInPort    int
+	DisableRawIn   bool
+	DisableBeastIn bool
 
 	// Receiver location
 	Latitude  float64
@@ -153,22 +165,32 @@ func main() {
 		app.cancel()
 	}()
 
-	// Start network services
+	// Start network output services
 	if !config.DisableHTTP {
 		app.wg.Add(1)
 		go app.runHTTPServer()
 	}
 	if !config.DisableBeast {
 		app.wg.Add(1)
-		go app.runBeastServer()
+		go app.runBeastOutputServer()
 	}
 	if !config.DisableAVR {
 		app.wg.Add(1)
-		go app.runAVRServer()
+		go app.runAVROutputServer()
 	}
 	if !config.DisableSBS {
 		app.wg.Add(1)
 		go app.runSBSServer()
+	}
+
+	// Start network input services
+	if !config.DisableRawIn {
+		app.wg.Add(1)
+		go app.runRawInputServer()
+	}
+	if !config.DisableBeastIn {
+		app.wg.Add(1)
+		go app.runBeastInputServer()
 	}
 
 	// Start periodic tasks
@@ -217,15 +239,21 @@ func parseFlags() *Config {
 	flag.StringVar(&config.InputFile, "infile", "", "Read samples from file")
 	flag.StringVar(&config.Filename, "filename", "", "Read samples from file (alias)")
 
-	// Network settings
+	// Network output settings
 	flag.IntVar(&config.HTTPPort, "http-port", defaultHTTPPort, "HTTP server port")
-	flag.IntVar(&config.BeastPort, "beast-port", defaultBeastPort, "Beast output port")
-	flag.IntVar(&config.AVRPort, "avr-port", defaultAVRPort, "AVR output port")
+	flag.IntVar(&config.BeastOutPort, "beast-out-port", defaultBeastOutPort, "Beast output port")
+	flag.IntVar(&config.AVROutPort, "avr-out-port", defaultAVROutPort, "AVR output port")
 	flag.IntVar(&config.SBSPort, "sbs-port", defaultSBSPort, "SBS output port")
 	flag.BoolVar(&config.DisableHTTP, "no-http", false, "Disable HTTP server")
-	flag.BoolVar(&config.DisableBeast, "no-beast", false, "Disable Beast output")
-	flag.BoolVar(&config.DisableAVR, "no-avr", false, "Disable AVR output")
+	flag.BoolVar(&config.DisableBeast, "no-beast-out", false, "Disable Beast output")
+	flag.BoolVar(&config.DisableAVR, "no-avr-out", false, "Disable AVR output")
 	flag.BoolVar(&config.DisableSBS, "no-sbs", false, "Disable SBS output")
+
+	// Network input settings
+	flag.IntVar(&config.RawInPort, "raw-in-port", defaultRawInPort, "Raw/AVR input port")
+	flag.IntVar(&config.BeastInPort, "beast-in-port", defaultBeastInPort, "Beast input port")
+	flag.BoolVar(&config.DisableRawIn, "no-raw-in", false, "Disable raw input")
+	flag.BoolVar(&config.DisableBeastIn, "no-beast-in", false, "Disable Beast input")
 
 	// Receiver location
 	flag.Float64Var(&config.Latitude, "lat", 0, "Receiver latitude")
@@ -495,14 +523,14 @@ func (app *App) runHTTPServer() {
 	}
 }
 
-func (app *App) runBeastServer() {
+func (app *App) runBeastOutputServer() {
 	defer app.wg.Done()
-	app.runTCPServer("Beast", app.config.BeastPort, &app.beastClients)
+	app.runTCPServer("Beast output", app.config.BeastOutPort, &app.beastClients)
 }
 
-func (app *App) runAVRServer() {
+func (app *App) runAVROutputServer() {
 	defer app.wg.Done()
-	app.runTCPServer("AVR", app.config.AVRPort, &app.avrClients)
+	app.runTCPServer("AVR output", app.config.AVROutPort, &app.avrClients)
 }
 
 func (app *App) runSBSServer() {
@@ -576,4 +604,322 @@ func (app *App) runPeriodicTasks() {
 			app.tracker.PeriodicUpdate()
 		}
 	}
+}
+
+// runRawInputServer listens for raw/AVR format messages on port 30001
+func (app *App) runRawInputServer() {
+	defer app.wg.Done()
+
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", app.config.RawInPort))
+	if err != nil {
+		log.Printf("Raw input server error: %v", err)
+		return
+	}
+	defer listener.Close()
+
+	log.Printf("Raw input server listening on port %d", app.config.RawInPort)
+
+	go func() {
+		<-app.ctx.Done()
+		listener.Close()
+	}()
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			select {
+			case <-app.ctx.Done():
+				return
+			default:
+				log.Printf("Raw input accept error: %v", err)
+				continue
+			}
+		}
+
+		log.Printf("Raw input client connected: %s", conn.RemoteAddr())
+		go app.handleRawInputConnection(conn)
+	}
+}
+
+// handleRawInputConnection handles a single raw/AVR input connection
+func (app *App) handleRawInputConnection(conn net.Conn) {
+	defer conn.Close()
+	defer log.Printf("Raw input client disconnected: %s", conn.RemoteAddr())
+
+	reader := make([]byte, 4096)
+	var buffer []byte
+
+	for {
+		select {
+		case <-app.ctx.Done():
+			return
+		default:
+		}
+
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		n, err := conn.Read(reader)
+		if err != nil {
+			return
+		}
+
+		buffer = append(buffer, reader[:n]...)
+
+		// Process complete messages (terminated by newline or semicolon)
+		for {
+			idx := -1
+			for i, b := range buffer {
+				if b == '\n' || b == ';' {
+					idx = i
+					break
+				}
+			}
+			if idx < 0 {
+				break
+			}
+
+			line := string(buffer[:idx])
+			buffer = buffer[idx+1:]
+
+			// Skip empty lines
+			if len(line) == 0 {
+				continue
+			}
+
+			// Parse and process the message
+			mm := app.decodeRawMessage(line)
+			if mm != nil {
+				app.handleMessage(mm)
+			}
+		}
+
+		// Prevent buffer from growing too large
+		if len(buffer) > 1024 {
+			buffer = buffer[len(buffer)-512:]
+		}
+	}
+}
+
+// decodeRawMessage decodes AVR format messages
+// Supports formats: *HEXDATA; @TIMESTAMP*HEXDATA; %TIMESTAMP*HEXDATA; <TIMESTAMP+SIG*HEXDATA;
+func (app *App) decodeRawMessage(line string) *modes.Message {
+	// Trim whitespace
+	line = trimSpace(line)
+	if len(line) == 0 {
+		return nil
+	}
+
+	// Remove trailing semicolon if present
+	if line[len(line)-1] == ';' {
+		line = line[:len(line)-1]
+	}
+
+	var hexData string
+	var signalLevel float64
+
+	switch line[0] {
+	case '*', ':':
+		// Simple format: *HEXDATA or :HEXDATA
+		hexData = line[1:]
+
+	case '@', '%':
+		// Timestamp format: @TIMESTAMP*HEXDATA or %TIMESTAMP*HEXDATA
+		// Timestamp is 12 hex chars
+		if len(line) < 14 {
+			return nil
+		}
+		// Find the * separator
+		starIdx := -1
+		for i := 13; i < len(line); i++ {
+			if line[i] == '*' {
+				starIdx = i
+				break
+			}
+		}
+		if starIdx < 0 {
+			return nil
+		}
+		hexData = line[starIdx+1:]
+
+	case '<':
+		// Beast AVR format: <TIMESTAMP+SIGNAL*HEXDATA
+		// 12 hex timestamp + 2 hex signal = 14 chars after <
+		if len(line) < 16 {
+			return nil
+		}
+		// Parse signal level (2 hex chars at position 13-14)
+		sig, err := parseHexByte(line[13:15])
+		if err == nil {
+			signalLevel = float64(sig) / 255.0
+			signalLevel = signalLevel * signalLevel
+		}
+		hexData = line[15:]
+
+	default:
+		return nil
+	}
+
+	// Decode hex data
+	msgBytes, err := decodeHex(hexData)
+	if err != nil || len(msgBytes) == 0 {
+		return nil
+	}
+
+	// Validate message length
+	if len(msgBytes) != 7 && len(msgBytes) != 14 {
+		return nil
+	}
+
+	// Decode the message
+	mm, result := modes.DecodeModesMessage(msgBytes)
+	if result < 0 {
+		return nil
+	}
+
+	mm.SignalLevel = signalLevel
+	mm.Remote = true
+
+	return mm
+}
+
+// runBeastInputServer listens for Beast format messages on port 30004
+func (app *App) runBeastInputServer() {
+	defer app.wg.Done()
+
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", app.config.BeastInPort))
+	if err != nil {
+		log.Printf("Beast input server error: %v", err)
+		return
+	}
+	defer listener.Close()
+
+	log.Printf("Beast input server listening on port %d", app.config.BeastInPort)
+
+	go func() {
+		<-app.ctx.Done()
+		listener.Close()
+	}()
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			select {
+			case <-app.ctx.Done():
+				return
+			default:
+				log.Printf("Beast input accept error: %v", err)
+				continue
+			}
+		}
+
+		log.Printf("Beast input client connected: %s", conn.RemoteAddr())
+		go app.handleBeastInputConnection(conn)
+	}
+}
+
+// handleBeastInputConnection handles a single Beast input connection
+func (app *App) handleBeastInputConnection(conn net.Conn) {
+	defer conn.Close()
+	defer log.Printf("Beast input client disconnected: %s", conn.RemoteAddr())
+
+	reader := make([]byte, 4096)
+	var buffer []byte
+
+	for {
+		select {
+		case <-app.ctx.Done():
+			return
+		default:
+		}
+
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		n, err := conn.Read(reader)
+		if err != nil {
+			return
+		}
+
+		buffer = append(buffer, reader[:n]...)
+
+		// Process complete Beast messages
+		for len(buffer) > 0 {
+			mm, remaining, err := modes.DecodeBeast(buffer)
+			if err != nil {
+				// Not enough data or invalid, try to find next escape byte
+				if len(buffer) > 1 {
+					nextEscape := -1
+					for i := 1; i < len(buffer); i++ {
+						if buffer[i] == 0x1A {
+							nextEscape = i
+							break
+						}
+					}
+					if nextEscape > 0 {
+						buffer = buffer[nextEscape:]
+						continue
+					}
+				}
+				break
+			}
+
+			buffer = remaining
+			if mm != nil {
+				mm.Remote = true
+				app.handleMessage(mm)
+			}
+		}
+
+		// Prevent buffer from growing too large
+		if len(buffer) > 4096 {
+			buffer = buffer[len(buffer)-2048:]
+		}
+	}
+}
+
+// Helper functions
+
+func trimSpace(s string) string {
+	start := 0
+	end := len(s)
+	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\r' || s[start] == '\n') {
+		start++
+	}
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\r' || s[end-1] == '\n') {
+		end--
+	}
+	return s[start:end]
+}
+
+func parseHexByte(s string) (byte, error) {
+	if len(s) != 2 {
+		return 0, fmt.Errorf("invalid hex byte")
+	}
+	var b byte
+	for _, c := range s {
+		b <<= 4
+		switch {
+		case c >= '0' && c <= '9':
+			b |= byte(c - '0')
+		case c >= 'a' && c <= 'f':
+			b |= byte(c - 'a' + 10)
+		case c >= 'A' && c <= 'F':
+			b |= byte(c - 'A' + 10)
+		default:
+			return 0, fmt.Errorf("invalid hex char")
+		}
+	}
+	return b, nil
+}
+
+func decodeHex(s string) ([]byte, error) {
+	if len(s)%2 != 0 {
+		return nil, fmt.Errorf("odd length hex string")
+	}
+	result := make([]byte, len(s)/2)
+	for i := 0; i < len(result); i++ {
+		b, err := parseHexByte(s[i*2 : i*2+2])
+		if err != nil {
+			return nil, err
+		}
+		result[i] = b
+	}
+	return result, nil
 }

@@ -20,8 +20,8 @@ import (
 // i.e. 1/6 of a symbol, 83.333ns. Each symbol we process advances the phase
 // offset by 6 i.e. 6/5 of a sample, 500ns.
 type Demodulator struct {
-	// icaoFilter contains known ICAO addresses for scoring
-	icaoFilter map[uint32]int64 // address -> last seen timestamp
+	// icaoFilter for validating addresses
+	icaoFilter *ICAOFilter
 
 	// Statistics
 	stats struct {
@@ -45,7 +45,7 @@ type Demodulator struct {
 // NewDemodulator creates a new Mode S demodulator.
 func NewDemodulator() *Demodulator {
 	return &Demodulator{
-		icaoFilter: make(map[uint32]int64),
+		icaoFilter: NewICAOFilter(),
 	}
 }
 
@@ -56,7 +56,14 @@ func (d *Demodulator) SetMessageHandler(handler func(*Message)) {
 
 // AddKnownICAO adds an ICAO address to the known filter.
 func (d *Demodulator) AddKnownICAO(addr uint32) {
-	d.icaoFilter[addr] = time.Now().UnixMilli()
+	if d.icaoFilter != nil {
+		d.icaoFilter.Add(addr)
+	}
+}
+
+// GetICAOFilter returns the ICAO filter for periodic expiry
+func (d *Demodulator) GetICAOFilter() *ICAOFilter {
+	return d.icaoFilter
 }
 
 // Phase correlation functions for Manchester decoding.
@@ -562,8 +569,10 @@ func (d *Demodulator) scoreModesMessage(msg []byte, validBits int) int {
 
 // icaoFilterTest checks if an ICAO address is in the known filter.
 func (d *Demodulator) icaoFilterTest(addr uint32) bool {
-	_, ok := d.icaoFilter[addr]
-	return ok
+	if d.icaoFilter == nil {
+		return false
+	}
+	return d.icaoFilter.Test(addr)
 }
 
 // correctAAField corrects errors in the AA (address) field.

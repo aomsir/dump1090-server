@@ -104,6 +104,13 @@ type Config struct {
 	InteractiveRows int
 	InteractiveTTL  int
 	RTL1090         bool
+
+	// JSON file output settings
+	WriteJSON         string // Directory for JSON output
+	WriteJSONEvery    float64 // Interval in seconds for aircraft.json
+	HistorySize       int    // Number of history files
+	HistoryInterval   int    // Interval in seconds for history files
+	LocationAccuracy  int    // 0=none, 1=rough, 2=exact
 }
 
 // App holds the application state
@@ -114,6 +121,7 @@ type App struct {
 	converter   *rtlsdr.ConverterState
 	device      *rtlsdr.Device
 	interactive *ui.Interactive
+	jsonWriter  *modes.JSONWriter
 
 	// Statistics
 	totalMessages   uint64
@@ -167,6 +175,25 @@ func main() {
 
 		// Suppress log output in interactive mode (like C version)
 		log.SetOutput(io.Discard)
+	}
+
+	// Initialize JSON file writer if directory specified
+	if config.WriteJSON != "" {
+		app.jsonWriter = modes.NewJSONWriter(modes.JSONWriterConfig{
+			Dir:              config.WriteJSON,
+			JSONInterval:     int(config.WriteJSONEvery * 1000), // Convert seconds to milliseconds
+			HistorySize:      config.HistorySize,
+			HistoryInterval:  config.HistoryInterval * 1000, // Convert seconds to milliseconds
+			ReceiverLat:      config.Latitude,
+			ReceiverLon:      config.Longitude,
+			LocationAccuracy: config.LocationAccuracy,
+			Version:          "1.0.0",
+		}, app.tracker, &app.totalMessages)
+
+		// Write initial files
+		app.jsonWriter.WriteInitialFiles()
+		log.Printf("JSON output enabled: %s (every %.1fs, %d history files)",
+			config.WriteJSON, config.WriteJSONEvery, config.HistorySize)
 	}
 
 	// Set receiver location if provided
@@ -300,6 +327,13 @@ func parseFlags() *Config {
 	flag.IntVar(&config.InteractiveTTL, "interactive-ttl", 60, "Display TTL in seconds for interactive mode")
 	flag.BoolVar(&config.RTL1090, "interactive-rtl1090", false, "Use RTL1090 display format")
 
+	// JSON file output
+	flag.StringVar(&config.WriteJSON, "write-json", "", "Directory for JSON output files")
+	flag.Float64Var(&config.WriteJSONEvery, "write-json-every", 1.0, "Interval in seconds for aircraft.json")
+	flag.IntVar(&config.HistorySize, "history-size", 120, "Number of history snapshot files")
+	flag.IntVar(&config.HistoryInterval, "history-interval", 30, "Interval in seconds for history snapshots")
+	flag.IntVar(&config.LocationAccuracy, "json-location-accuracy", 0, "Location accuracy in JSON (0=none, 1=rough, 2=exact)")
+
 	// Net-only mode
 	flag.BoolVar(&config.NetOnly, "net-only", false, "Network only mode, no RTL-SDR device")
 
@@ -389,6 +423,11 @@ func (app *App) handleMessage(mm *modes.Message) {
 	aircraft := app.tracker.UpdateFromMessage(mm)
 	if aircraft != nil {
 		atomic.AddUint64(&app.decodedMessages, 1)
+
+		// Add valid ICAO address to filter for future scoring
+		if app.demod != nil {
+			app.demod.AddKnownICAO(mm.Addr)
+		}
 	}
 
 	// Broadcast to network clients
@@ -529,9 +568,24 @@ func (app *App) runHTTPServer() {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
-		receiver := modes.GenerateReceiverJSON("1.0.0", 1.0, 120, app.config.Latitude, app.config.Longitude)
-		data, _ := json.MarshalIndent(receiver, "", "  ")
-		w.Write(data)
+		// If JSON writer is enabled, use its receiver.json format
+		if app.jsonWriter != nil {
+			historyCount := 0
+			for i := 0; i < app.jsonWriter.GetHistorySize(); i++ {
+				if app.jsonWriter.GetHistoryJSON(i) != nil {
+					historyCount++
+				}
+			}
+			receiver := modes.GenerateReceiverJSON("1.0.0",
+				float64(app.jsonWriter.GetJSONInterval())/1000.0,
+				historyCount, app.config.Latitude, app.config.Longitude)
+			data, _ := json.MarshalIndent(receiver, "", "  ")
+			w.Write(data)
+		} else {
+			receiver := modes.GenerateReceiverJSON("1.0.0", 1.0, 120, app.config.Latitude, app.config.Longitude)
+			data, _ := json.MarshalIndent(receiver, "", "  ")
+			w.Write(data)
+		}
 	})
 
 	// Stats endpoint
@@ -543,6 +597,35 @@ func (app *App) runHTTPServer() {
 			atomic.LoadUint64(&app.totalMessages),
 			atomic.LoadUint64(&app.validMessages),
 			atomic.LoadUint64(&app.decodedMessages))
+	})
+
+	// History JSON endpoints (if JSON writer is enabled)
+	mux.HandleFunc("/data/history_", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		if app.jsonWriter == nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		// Parse history index from URL (e.g., /data/history_0.json)
+		path := r.URL.Path
+		var index int
+		_, err := fmt.Sscanf(path, "/data/history_%d.json", &index)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		// Get history content
+		content := app.jsonWriter.GetHistoryJSON(index)
+		if content == nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		w.Write(content)
 	})
 
 	server := &http.Server{
@@ -630,10 +713,10 @@ func (app *App) runTCPServer(name string, port int, clients *sync.Map) {
 func (app *App) runPeriodicTasks() {
 	defer app.wg.Done()
 
-	// Use 100ms ticker for interactive mode (it internally checks refresh time)
-	// and count to 10 for 1-second periodic updates
+	// Use 100ms ticker for interactive mode and JSON writing
+	// Both need sub-second updates
 	var tickInterval time.Duration
-	if app.interactive != nil {
+	if app.interactive != nil || app.jsonWriter != nil {
 		tickInterval = 100 * time.Millisecond
 	} else {
 		tickInterval = 1 * time.Second
@@ -653,10 +736,24 @@ func (app *App) runPeriodicTasks() {
 				app.interactive.ShowData(app.tracker)
 			}
 
+			// Update JSON files if enabled
+			if app.jsonWriter != nil {
+				app.jsonWriter.PeriodicUpdate()
+			}
+
 			// Update tracker every ~1 second (remove stale aircraft)
 			tickCount++
-			if app.interactive == nil || tickCount >= 10 {
+			if (app.interactive == nil && app.jsonWriter == nil) || tickCount >= 10 {
 				app.tracker.PeriodicUpdate()
+
+				// Expire old ICAO filter entries (every second is enough,
+				// actual expiry happens every 60 seconds internally)
+				if app.demod != nil {
+					if filter := app.demod.GetICAOFilter(); filter != nil {
+						filter.Expire()
+					}
+				}
+
 				tickCount = 0
 			}
 		}

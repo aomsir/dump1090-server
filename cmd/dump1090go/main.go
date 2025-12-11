@@ -28,6 +28,42 @@ import (
 	"github.com/aomsir/dump1090-mutability-go/internal/ui"
 )
 
+// NetworkClient wraps a connection with heartbeat tracking
+type NetworkClient struct {
+	conn      net.Conn
+	lastWrite time.Time
+	mu        sync.Mutex
+}
+
+func newNetworkClient(conn net.Conn) *NetworkClient {
+	return &NetworkClient{
+		conn:      conn,
+		lastWrite: time.Now(),
+	}
+}
+
+func (nc *NetworkClient) Write(data []byte) (int, error) {
+	nc.mu.Lock()
+	defer nc.mu.Unlock()
+
+	nc.conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
+	n, err := nc.conn.Write(data)
+	if err == nil {
+		nc.lastWrite = time.Now()
+	}
+	return n, err
+}
+
+func (nc *NetworkClient) Close() error {
+	return nc.conn.Close()
+}
+
+func (nc *NetworkClient) shouldSendHeartbeat(interval time.Duration) bool {
+	nc.mu.Lock()
+	defer nc.mu.Unlock()
+	return time.Since(nc.lastWrite) >= interval
+}
+
 const (
 	// Default values
 	defaultFrequency  = 1090000000 // 1090 MHz
@@ -43,6 +79,9 @@ const (
 	// Network input ports
 	defaultRawInPort   = 30001
 	defaultBeastInPort = 30004
+
+	// Heartbeat interval (matching C version)
+	heartbeatInterval = 60 * time.Second
 
 	// Buffer sizes
 	asyncBufNum = 12
@@ -458,20 +497,19 @@ func (app *App) broadcastMessage(mm *modes.Message, aircraft *modes.Aircraft) {
 	if !app.config.DisableBeast {
 		beastData := modes.EncodeBeast(mm)
 		app.beastClients.Range(func(key, value interface{}) bool {
-			conn := value.(net.Conn)
-			conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
-			conn.Write(beastData)
+			client := value.(*NetworkClient)
+			client.Write(beastData)
 			return true
 		})
 	}
 
 	// AVR output
 	if !app.config.DisableAVR {
-		avrData := modes.EncodeAVR(mm, true)
+		// C version defaults to no timestamp (only in MLAT mode)
+		avrData := modes.EncodeAVR(mm, false)
 		app.avrClients.Range(func(key, value interface{}) bool {
-			conn := value.(net.Conn)
-			conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
-			conn.Write([]byte(avrData))
+			client := value.(*NetworkClient)
+			client.Write([]byte(avrData))
 			return true
 		})
 	}
@@ -481,9 +519,8 @@ func (app *App) broadcastMessage(mm *modes.Message, aircraft *modes.Aircraft) {
 		sbsData := modes.EncodeSBS(mm, aircraft)
 		if sbsData != "" {
 			app.sbsClients.Range(func(key, value interface{}) bool {
-				conn := value.(net.Conn)
-				conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
-				conn.Write([]byte(sbsData))
+				client := value.(*NetworkClient)
+				client.Write([]byte(sbsData))
 				return true
 			})
 		}
@@ -704,27 +741,67 @@ func (app *App) runTCPServer(name string, port int, clients *sync.Map) {
 		}
 
 		clientID := conn.RemoteAddr().String()
-		clients.Store(clientID, conn)
+		client := newNetworkClient(conn)
+		clients.Store(clientID, client)
 		log.Printf("%s client connected: %s", name, clientID)
 
-		go func(id string, c net.Conn) {
+		go func(id string, nc *NetworkClient) {
 			defer func() {
 				clients.Delete(id)
-				c.Close()
+				nc.Close()
 				log.Printf("%s client disconnected: %s", name, id)
 			}()
 
 			// Keep connection alive until closed or context cancelled
 			buf := make([]byte, 1024)
 			for {
-				c.SetReadDeadline(time.Now().Add(60 * time.Second))
-				_, err := c.Read(buf)
+				nc.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+				_, err := nc.conn.Read(buf)
 				if err != nil {
 					return
 				}
 			}
-		}(clientID, conn)
+		}(clientID, client)
 	}
+}
+
+// sendHeartbeats sends heartbeat messages to idle connections
+func (app *App) sendHeartbeats() {
+	// Raw/AVR heartbeat: *0000;\n
+	avrHeartbeat := []byte("*0000;\n")
+
+	// Beast heartbeat: 0x1a, '1', followed by 9 zeros
+	beastHeartbeat := []byte{0x1a, '1', 0, 0, 0, 0, 0, 0, 0, 0, 0}
+
+	// SBS heartbeat: \r\n
+	sbsHeartbeat := []byte("\r\n")
+
+	// Send to Beast clients
+	app.beastClients.Range(func(key, value interface{}) bool {
+		client := value.(*NetworkClient)
+		if client.shouldSendHeartbeat(heartbeatInterval) {
+			client.Write(beastHeartbeat)
+		}
+		return true
+	})
+
+	// Send to AVR clients
+	app.avrClients.Range(func(key, value interface{}) bool {
+		client := value.(*NetworkClient)
+		if client.shouldSendHeartbeat(heartbeatInterval) {
+			client.Write(avrHeartbeat)
+		}
+		return true
+	})
+
+	// Send to SBS clients
+	app.sbsClients.Range(func(key, value interface{}) bool {
+		client := value.(*NetworkClient)
+		if client.shouldSendHeartbeat(heartbeatInterval) {
+			client.Write(sbsHeartbeat)
+		}
+		return true
+	})
 }
 
 func (app *App) runPeriodicTasks() {
@@ -775,6 +852,9 @@ func (app *App) runPeriodicTasks() {
 						filter.Expire()
 					}
 				}
+
+				// Send heartbeats to idle connections
+				app.sendHeartbeats()
 
 				tickCount = 0
 			}

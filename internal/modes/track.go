@@ -26,21 +26,26 @@ type Tracker struct {
 	receiverLatLon bool // True if receiver location is valid
 	maxRange       float64 // Maximum range in meters (0 = no limit)
 
-	// Statistics
+	// Statistics collector (optional)
+	statsCollector *StatsCollector
+
+	// Statistics (local counters, kept for GetStats)
 	stats struct {
-		uniqueAircraft         int64
-		singleMessageAircraft  int64
-		cprGlobalOK            int64
-		cprGlobalBad           int64
-		cprGlobalSkipped       int64
-		cprGlobalRangeChecks   int64
-		cprGlobalSpeedChecks   int64
-		cprLocalOK             int64
-		cprLocalSkipped        int64
-		cprLocalRangeChecks    int64
-		cprLocalSpeedChecks    int64
-		cprAirborne            int64
-		cprSurface             int64
+		uniqueAircraft           int64
+		singleMessageAircraft    int64
+		cprGlobalOK              int64
+		cprGlobalBad             int64
+		cprGlobalSkipped         int64
+		cprGlobalRangeChecks     int64
+		cprGlobalSpeedChecks     int64
+		cprLocalOK               int64
+		cprLocalAircraftRelative int64
+		cprLocalReceiverRelative int64
+		cprLocalSkipped          int64
+		cprLocalRangeChecks      int64
+		cprLocalSpeedChecks      int64
+		cprAirborne              int64
+		cprSurface               int64
 	}
 }
 
@@ -49,6 +54,11 @@ func NewTracker() *Tracker {
 	return &Tracker{
 		aircraft: make(map[uint32]*Aircraft),
 	}
+}
+
+// SetStatsCollector sets the statistics collector.
+func (t *Tracker) SetStatsCollector(sc *StatsCollector) {
+	t.statsCollector = sc
 }
 
 // SetReceiverLocation sets the receiver's location for CPR decoding and range checks.
@@ -230,6 +240,112 @@ func (t *Tracker) UpdateFromMessage(mm *Message) *Aircraft {
 	return a
 }
 
+// UpdateFromModeAC handles Mode A/C messages and attempts to match them
+// with existing Mode S aircraft. Mode A/C messages have synthetic ICAO
+// addresses and should not create new aircraft tracks.
+// Returns nil (Mode A/C messages don't create independent tracks).
+func (t *Tracker) UpdateFromModeAC(mm *Message) *Aircraft {
+	now := uint64(time.Now().UnixMilli())
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// Find or create the synthetic Mode A/C aircraft
+	modeACAircraft, exists := t.aircraft[mm.Addr]
+	if !exists {
+		modeACAircraft = t.createAircraft(mm)
+		modeACAircraft.ModeACFlags |= MODEAC_MSG_FLAG // Mark as synthetic
+		t.aircraft[mm.Addr] = modeACAircraft
+	}
+
+	// Update signal level
+	if mm.SignalLevel > 0 {
+		modeACAircraft.SignalLevel[modeACAircraft.SignalNext] = mm.SignalLevel
+		modeACAircraft.SignalNext = (modeACAircraft.SignalNext + 1) & 7
+	}
+
+	modeACAircraft.Seen = now
+	modeACAircraft.Messages++
+
+	// Update squawk
+	if mm.SquawkValid && acceptData(&modeACAircraft.SquawkValid, mm.Source, now) {
+		modeACAircraft.Squawk = mm.Squawk
+	}
+
+	// Update altitude
+	if mm.AltitudeValid && mm.AltitudeSource == ALTITUDE_BARO && acceptData(&modeACAircraft.AltitudeValid, mm.Source, now) {
+		modeACAircraft.Altitude = mm.Altitude
+		modeACAircraft.AltitudeModeC = uint32((mm.Altitude + 49) / 100)
+	}
+
+	// Flag Mode A only (no altitude) if applicable
+	if mm.SquawkValid && !mm.AltitudeValid {
+		modeACAircraft.ModeACFlags |= MODEAC_MSG_MODEA_ONLY
+	}
+
+	// Clear hit flags for this matching attempt
+	modeACAircraft.ModeACFlags &= ^(MODEAC_MSG_MODEA_HIT | MODEAC_MSG_MODEC_HIT | MODEAC_MSG_MODES_HIT)
+
+	// Try to match with existing Mode S aircraft
+	t.matchModeACWithModeS(modeACAircraft)
+
+	// Handle MODEAC_MSG_MODEC_OLD flag (C version track.c:640-657)
+	// If this Mode C used to match but doesn't anymore (aircraft changed altitude or left range),
+	// it might be a new aircraft. Clear the OLD flag and reset message count.
+	if modeACAircraft.ModeACFlags&(MODEAC_MSG_MODEC_HIT|MODEAC_MSG_MODEC_OLD) == MODEAC_MSG_MODEC_OLD {
+		modeACAircraft.ModeACFlags &= ^MODEAC_MSG_MODEC_OLD
+		modeACAircraft.Messages = 1
+	}
+
+	return nil // Don't return Mode A/C synthetic aircraft
+}
+
+// matchModeACWithModeS attempts to match a Mode A/C aircraft with Mode S aircraft
+// based on squawk code (Mode A) and altitude (Mode C).
+func (t *Tracker) matchModeACWithModeS(modeACAircraft *Aircraft) {
+	// Iterate through all aircraft to find Mode S matches
+	for _, modeS := range t.aircraft {
+		// Skip Mode A/C synthetic records
+		if modeS.ModeACFlags&MODEAC_MSG_FLAG != 0 {
+			continue
+		}
+
+		// Mode A matching: check squawk codes
+		if dataValid(&modeACAircraft.SquawkValid) && dataValid(&modeS.SquawkValid) {
+			if modeACAircraft.Squawk == modeS.Squawk {
+				// Found Mode A match
+				modeS.ModeACount = modeACAircraft.Messages
+				modeS.ModeACFlags |= MODEAC_MSG_MODEA_HIT
+				modeACAircraft.ModeACFlags |= MODEAC_MSG_MODEA_HIT
+
+				// If Mode S has both Mode A and Mode C hits, mark as matched
+				if modeS.ModeACount > 0 &&
+					(modeS.ModeCCount > 1 || (modeACAircraft.ModeACFlags&MODEAC_MSG_MODEA_ONLY) != 0) {
+					modeACAircraft.ModeACFlags |= MODEAC_MSG_MODES_HIT
+				}
+			}
+		}
+
+		// Mode C matching: check altitude (within ±100ft)
+		if dataValid(&modeACAircraft.AltitudeValid) && dataValid(&modeS.AltitudeValid) {
+			// Match if within ±1 Mode C unit (100ft)
+			if modeACAircraft.AltitudeModeC == modeS.AltitudeModeC ||
+				modeACAircraft.AltitudeModeC == modeS.AltitudeModeC+1 ||
+				modeACAircraft.AltitudeModeC+1 == modeS.AltitudeModeC {
+				// Found Mode C match
+				modeS.ModeCCount = modeACAircraft.Messages
+				modeS.ModeACFlags |= MODEAC_MSG_MODEC_HIT
+				modeACAircraft.ModeACFlags |= MODEAC_MSG_MODEC_HIT
+
+				// If Mode S has both Mode A and Mode C hits, mark as matched
+				if modeS.ModeACount > 0 && modeS.ModeCCount > 1 {
+					modeACAircraft.ModeACFlags |= (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEC_OLD)
+				}
+			}
+		}
+	}
+}
+
 // PeriodicUpdate performs periodic maintenance (cleanup, etc).
 // Should be called approximately once per second.
 func (t *Tracker) PeriodicUpdate() {
@@ -282,6 +398,10 @@ func (t *Tracker) createAircraft(mm *Message) *Aircraft {
 	for i := range a.SignalLevel {
 		a.SignalLevel[i] = 1e-5
 	}
+
+	// Initialize FATSV emitted message headers (matching C version track.c:76-77)
+	a.FATSVEmittedBDS30[0] = 0x30
+	a.FATSVEmittedESACASRA[0] = 0xE2
 
 	// Store first message
 	a.FirstMessage = *mm
@@ -506,6 +626,7 @@ func (t *Tracker) updatePosition(a *Aircraft, mm *Message, now uint64) {
 
 		if locationResult == -2 {
 			// Bad data, discard both frames
+			// (stats already recorded in doGlobalCPR for range/speed check)
 			t.stats.cprGlobalBad++
 			a.CPROddValid.Source = SOURCE_INVALID
 			a.CPREvenValid.Source = SOURCE_INVALID
@@ -514,20 +635,41 @@ func (t *Tracker) updatePosition(a *Aircraft, mm *Message, now uint64) {
 		} else if locationResult == -1 {
 			// Can't decode yet, try local
 			t.stats.cprGlobalSkipped++
+			if t.statsCollector != nil {
+				t.statsCollector.AddCPRResult(surface, true, false, "skipped", "")
+			}
 		} else {
 			t.stats.cprGlobalOK++
+			if t.statsCollector != nil {
+				t.statsCollector.AddCPRResult(surface, true, true, "", "")
+			}
 			combineValidity(&a.PositionValid, &a.CPREvenValid, &a.CPROddValid)
 		}
 	}
 
 	// Try local CPR if global failed
 	if locationResult == -1 {
-		locationResult, newLat, newLon, newNUC = t.doLocalCPR(a, mm, now, surface)
+		var aircraftRelative bool
+		locationResult, newLat, newLon, newNUC, aircraftRelative = t.doLocalCPR(a, mm, now, surface)
 
 		if locationResult < 0 {
 			t.stats.cprLocalSkipped++
+			if t.statsCollector != nil {
+				t.statsCollector.AddCPRResult(surface, false, false, "skipped", "")
+			}
 		} else {
 			t.stats.cprLocalOK++
+			// Track whether we used aircraft or receiver position
+			relativeType := "receiver"
+			if aircraftRelative {
+				t.stats.cprLocalAircraftRelative++
+				relativeType = "aircraft"
+			} else {
+				t.stats.cprLocalReceiverRelative++
+			}
+			if t.statsCollector != nil {
+				t.statsCollector.AddCPRResult(surface, false, true, "", relativeType)
+			}
 			mm.CPRRelative = true
 
 			if mm.CPROdd {
@@ -547,6 +689,11 @@ func (t *Tracker) updatePosition(a *Aircraft, mm *Message, now uint64) {
 		a.Lat = newLat
 		a.Lon = newLon
 		a.PosNUC = newNUC
+
+		// Update range histogram if receiver location is known
+		if t.statsCollector != nil && t.receiverLatLon && t.maxRange > 0 {
+			t.statsCollector.AddRangeHistogram(t.receiverLat, t.receiverLon, newLat, newLon, t.maxRange)
+		}
 	}
 }
 
@@ -602,6 +749,9 @@ func (t *Tracker) doGlobalCPR(a *Aircraft, mm *Message, now uint64, surface bool
 		distance := greatcircle(t.receiverLat, t.receiverLon, lat, lon)
 		if distance > t.maxRange {
 			t.stats.cprGlobalRangeChecks++
+			if t.statsCollector != nil {
+				t.statsCollector.AddCPRResult(surface, true, false, "range", "")
+			}
 			return -2, 0, 0, 0
 		}
 	}
@@ -614,6 +764,9 @@ func (t *Tracker) doGlobalCPR(a *Aircraft, mm *Message, now uint64, surface bool
 	// Check speed limit
 	if dataValid(&a.PositionValid) && a.PosNUC >= nuc && !t.speedCheck(a, lat, lon, now, surface) {
 		t.stats.cprGlobalSpeedChecks++
+		if t.statsCollector != nil {
+			t.statsCollector.AddCPRResult(surface, true, false, "speed", "")
+		}
 		return -2, 0, 0, 0
 	}
 
@@ -621,13 +774,15 @@ func (t *Tracker) doGlobalCPR(a *Aircraft, mm *Message, now uint64, surface bool
 }
 
 // doLocalCPR attempts local (relative) CPR decoding.
-// Returns: (result, lat, lon, nuc) where result is 0=success, -1=can't decode.
-func (t *Tracker) doLocalCPR(a *Aircraft, mm *Message, now uint64, surface bool) (int, float64, float64, uint32) {
+// Returns: (result, lat, lon, nuc, aircraftRelative)
+// where result is 0=success, -1=can't decode, and aircraftRelative indicates reference type.
+func (t *Tracker) doLocalCPR(a *Aircraft, mm *Message, now uint64, surface bool) (int, float64, float64, uint32, bool) {
 	fflag := mm.CPROdd
 	nuc := mm.CPRNUCP
 
 	var reflat, reflon float64
 	var rangeLimit float64
+	var aircraftRelative bool
 
 	if dataValid(&a.PositionValid) && dataAge(&a.PositionValid, now) < 50000 {
 		reflat = a.Lat
@@ -636,22 +791,24 @@ func (t *Tracker) doLocalCPR(a *Aircraft, mm *Message, now uint64, surface bool)
 			nuc = a.PosNUC
 		}
 		rangeLimit = 50e3
+		aircraftRelative = true // Using aircraft's own position
 	} else if !surface && t.receiverLatLon {
 		reflat = t.receiverLat
 		reflon = t.receiverLon
 
 		// Cell size is at least 360NM, giving nominal max range of 180NM
 		if t.maxRange == 0 {
-			return -1, 0, 0, 0
+			return -1, 0, 0, 0, false
 		} else if t.maxRange <= 1852*180 {
 			rangeLimit = t.maxRange
 		} else if t.maxRange < 1852*360 {
 			rangeLimit = (1852 * 360) - t.maxRange
 		} else {
-			return -1, 0, 0, 0
+			return -1, 0, 0, 0, false
 		}
+		aircraftRelative = false // Using receiver position
 	} else {
-		return -1, 0, 0, 0 // No reference
+		return -1, 0, 0, 0, false // No reference
 	}
 
 	lat, lon, result := DecodeCPRRelative(reflat, reflon,
@@ -659,7 +816,7 @@ func (t *Tracker) doLocalCPR(a *Aircraft, mm *Message, now uint64, surface bool)
 		fflag, surface)
 
 	if result < 0 {
-		return result, 0, 0, 0
+		return result, 0, 0, 0, false
 	}
 
 	// Check range limit
@@ -667,15 +824,21 @@ func (t *Tracker) doLocalCPR(a *Aircraft, mm *Message, now uint64, surface bool)
 		distance := greatcircle(reflat, reflon, lat, lon)
 		if distance > rangeLimit {
 			t.stats.cprLocalRangeChecks++
-			return -1, 0, 0, 0
+			if t.statsCollector != nil {
+				t.statsCollector.AddCPRResult(surface, false, false, "range", "")
+			}
+			return -1, 0, 0, 0, false
 		}
 	}
 
 	// Check speed limit
 	if dataValid(&a.PositionValid) && a.PosNUC >= nuc && !t.speedCheck(a, lat, lon, now, surface) {
 		t.stats.cprLocalSpeedChecks++
-		return -1, 0, 0, 0
+		if t.statsCollector != nil {
+			t.statsCollector.AddCPRResult(surface, false, false, "speed", "")
+		}
+		return -1, 0, 0, 0, false
 	}
 
-	return 0, lat, lon, nuc
+	return 0, lat, lon, nuc, aircraftRelative
 }

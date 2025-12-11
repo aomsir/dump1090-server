@@ -75,6 +75,7 @@ const (
 	defaultBeastOutPort = 30005
 	defaultAVROutPort   = 30002
 	defaultSBSPort      = 30003
+	defaultFATSVPort    = 10001
 
 	// Network input ports
 	defaultRawInPort   = 30001
@@ -113,10 +114,12 @@ type Config struct {
 	BeastOutPort int
 	AVROutPort   int
 	SBSPort      int
+	FATSVPort    int
 	DisableHTTP  bool
 	DisableBeast bool
 	DisableAVR   bool
 	DisableSBS   bool
+	DisableFATSV bool
 
 	// Network input settings
 	RawInPort      int
@@ -162,6 +165,7 @@ type App struct {
 	device         *rtlsdr.Device
 	interactive    *ui.Interactive
 	jsonWriter     *modes.JSONWriter
+	fatsvWriter    *modes.FATSVWriter
 
 	// Statistics
 	totalMessages   uint64
@@ -172,6 +176,7 @@ type App struct {
 	beastClients sync.Map
 	avrClients   sync.Map
 	sbsClients   sync.Map
+	fatsvClients sync.Map
 
 	// Buffers
 	magBuf *modes.MagBuf
@@ -209,8 +214,12 @@ func main() {
 		statsCollector: statsCollector,
 	}
 
-	// Inject stats collector into demodulator
+	// Inject stats collector into components
 	app.demod.SetStatsCollector(statsCollector)
+	app.tracker.SetStatsCollector(statsCollector)
+
+	// Initialize FATSV writer
+	app.fatsvWriter = modes.NewFATSVWriter(app.tracker)
 
 	// Initialize interactive mode if enabled
 	if config.Interactive {
@@ -283,6 +292,10 @@ func main() {
 		app.wg.Add(1)
 		go app.runSBSServer()
 	}
+	if !config.DisableFATSV {
+		app.wg.Add(1)
+		go app.runFATSVServer()
+	}
 
 	// Start network input services
 	if !config.DisableRawIn {
@@ -349,10 +362,12 @@ func parseFlags() *Config {
 	flag.IntVar(&config.BeastOutPort, "beast-out-port", defaultBeastOutPort, "Beast output port")
 	flag.IntVar(&config.AVROutPort, "avr-out-port", defaultAVROutPort, "AVR output port")
 	flag.IntVar(&config.SBSPort, "sbs-port", defaultSBSPort, "SBS output port")
+	flag.IntVar(&config.FATSVPort, "fatsv-port", defaultFATSVPort, "FATSV output port")
 	flag.BoolVar(&config.DisableHTTP, "no-http", false, "Disable HTTP server")
 	flag.BoolVar(&config.DisableBeast, "no-beast-out", false, "Disable Beast output")
 	flag.BoolVar(&config.DisableAVR, "no-avr-out", false, "Disable AVR output")
 	flag.BoolVar(&config.DisableSBS, "no-sbs", false, "Disable SBS output")
+	flag.BoolVar(&config.DisableFATSV, "no-fatsv", false, "Disable FATSV output")
 
 	// Network input settings
 	flag.IntVar(&config.RawInPort, "raw-in-port", defaultRawInPort, "Raw/AVR input port")
@@ -472,14 +487,26 @@ func (app *App) handleMessage(mm *modes.Message) {
 	// Just count valid messages
 	atomic.AddUint64(&app.validMessages, 1)
 
-	// Update tracker
-	aircraft := app.tracker.UpdateFromMessage(mm)
-	if aircraft != nil {
-		atomic.AddUint64(&app.decodedMessages, 1)
+	var aircraft *modes.Aircraft
 
-		// Add valid ICAO address to filter for future scoring
-		if app.demod != nil {
-			app.demod.AddKnownICAO(mm.Addr)
+	// Mode A/C messages (MsgType=32) get special handling
+	if mm.MsgType == 32 {
+		// Mode A/C messages are matched with existing Mode S aircraft
+		// UpdateFromModeAC returns nil (Mode A/C doesn't create independent tracks)
+		app.tracker.UpdateFromModeAC(mm)
+		aircraft = nil
+	} else {
+		// Normal Mode S message processing
+		aircraft = app.tracker.UpdateFromMessage(mm)
+		if aircraft != nil {
+			atomic.AddUint64(&app.decodedMessages, 1)
+
+			// Add valid ICAO address to filter for future scoring
+			// (matching C version logic: only high-confidence addresses)
+			if app.demod != nil && mm.Corrected == 0 &&
+				(mm.MsgType == 17 || mm.MsgType == 18 || (mm.MsgType == 11 && mm.IID == 0)) {
+				app.demod.AddKnownICAO(mm.Addr)
+			}
 		}
 	}
 
@@ -521,6 +548,19 @@ func (app *App) broadcastMessage(mm *modes.Message, aircraft *modes.Aircraft) {
 			app.sbsClients.Range(func(key, value interface{}) bool {
 				client := value.(*NetworkClient)
 				client.Write([]byte(sbsData))
+				return true
+			})
+		}
+	}
+
+	// FATSV event output (matching C version net_io.c:1470-1475)
+	// Only for specific message types that trigger immediate output
+	if !app.config.DisableFATSV && aircraft != nil {
+		fatsvEvent := app.fatsvWriter.WriteFATSVEvent(mm, aircraft)
+		if fatsvEvent != nil {
+			app.fatsvClients.Range(func(key, value interface{}) bool {
+				client := value.(*NetworkClient)
+				client.Write(fatsvEvent)
 				return true
 			})
 		}
@@ -713,6 +753,11 @@ func (app *App) runSBSServer() {
 	app.runTCPServer("SBS", app.config.SBSPort, &app.sbsClients)
 }
 
+func (app *App) runFATSVServer() {
+	defer app.wg.Done()
+	app.runTCPServer("FATSV", app.config.FATSVPort, &app.fatsvClients)
+}
+
 func (app *App) runTCPServer(name string, port int, clients *sync.Map) {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
@@ -776,6 +821,9 @@ func (app *App) sendHeartbeats() {
 	// SBS heartbeat: \r\n
 	sbsHeartbeat := []byte("\r\n")
 
+	// FATSV heartbeat: empty line (matching C version net_io.c:2105)
+	fatsvHeartbeat := []byte("\n")
+
 	// Send to Beast clients
 	app.beastClients.Range(func(key, value interface{}) bool {
 		client := value.(*NetworkClient)
@@ -799,6 +847,15 @@ func (app *App) sendHeartbeats() {
 		client := value.(*NetworkClient)
 		if client.shouldSendHeartbeat(heartbeatInterval) {
 			client.Write(sbsHeartbeat)
+		}
+		return true
+	})
+
+	// Send to FATSV clients
+	app.fatsvClients.Range(func(key, value interface{}) bool {
+		client := value.(*NetworkClient)
+		if client.shouldSendHeartbeat(heartbeatInterval) {
+			client.Write(fatsvHeartbeat)
 		}
 		return true
 	})
@@ -855,6 +912,19 @@ func (app *App) runPeriodicTasks() {
 
 				// Send heartbeats to idle connections
 				app.sendHeartbeats()
+
+				// FATSV periodic output (matching C version net_io.c:1508-1512)
+				// Once per second scan of all aircraft
+				if !app.config.DisableFATSV && app.fatsvWriter != nil {
+					fatsvData := app.fatsvWriter.WriteFATSV()
+					if len(fatsvData) > 0 {
+						app.fatsvClients.Range(func(key, value interface{}) bool {
+							client := value.(*NetworkClient)
+							client.Write(fatsvData)
+							return true
+						})
+					}
+				}
 
 				tickCount = 0
 			}

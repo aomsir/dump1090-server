@@ -8,6 +8,7 @@
 package modes
 
 import (
+	"math"
 	"sync"
 	"time"
 )
@@ -193,7 +194,8 @@ func (sc *StatsCollector) AddSignalPower(power float64) {
 }
 
 // AddCPRResult records CPR decoding result
-func (sc *StatsCollector) AddCPRResult(surface bool, global bool, ok bool, reason string) {
+// For local CPR, relativeType indicates: "aircraft" or "receiver"
+func (sc *StatsCollector) AddCPRResult(surface bool, global bool, ok bool, reason string, relativeType string) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 
@@ -218,6 +220,13 @@ func (sc *StatsCollector) AddCPRResult(surface bool, global bool, ok bool, reaso
 	} else {
 		if ok {
 			sc.current.CPRLocalOK++
+			// Track aircraft vs receiver relative
+			switch relativeType {
+			case "aircraft":
+				sc.current.CPRLocalAircraftRelative++
+			case "receiver":
+				sc.current.CPRLocalReceiverRelative++
+			}
 		} else {
 			switch reason {
 			case "range":
@@ -236,6 +245,56 @@ func (sc *StatsCollector) AddMessage() {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 	sc.current.MessagesTotal++
+}
+
+// AddRangeHistogram updates the range histogram with a decoded position
+// receiverLat/receiverLon: receiver position in degrees
+// lat/lon: aircraft position in degrees
+// maxRange: maximum range in meters (for normalization)
+func (sc *StatsCollector) AddRangeHistogram(receiverLat, receiverLon, lat, lon, maxRange float64) {
+	if maxRange <= 0 {
+		return // Can't normalize without maxRange
+	}
+
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	// Calculate distance in meters using great circle formula (simplified from track.go)
+	lat0Rad := receiverLat * 3.14159265358979323846 / 180.0
+	lon0Rad := receiverLon * 3.14159265358979323846 / 180.0
+	lat1Rad := lat * 3.14159265358979323846 / 180.0
+	lon1Rad := lon * 3.14159265358979323846 / 180.0
+
+	dlat := lat1Rad - lat0Rad
+	if dlat < 0 {
+		dlat = -dlat
+	}
+	dlon := lon1Rad - lon0Rad
+	if dlon < 0 {
+		dlon = -dlon
+	}
+
+	// Spherical law of cosines (faster than haversine for this use case)
+	// Note: track.go has greatcircle function we could reuse, but avoiding cross-package dependency
+	sinLat0 := math.Sin(lat0Rad)
+	sinLat1 := math.Sin(lat1Rad)
+	cosLat0 := math.Cos(lat0Rad)
+	cosLat1 := math.Cos(lat1Rad)
+	cosDlon := math.Cos(lon1Rad - lon0Rad)
+
+	range_ := 6371e3 * math.Acos(sinLat0*sinLat1+cosLat0*cosLat1*cosDlon)
+
+	// Normalize to bucket index (0 to RANGE_BUCKET_COUNT-1)
+	bucket := int(math.Round(range_ / maxRange * float64(RANGE_BUCKET_COUNT)))
+
+	// Clamp to valid range
+	if bucket < 0 {
+		bucket = 0
+	} else if bucket >= RANGE_BUCKET_COUNT {
+		bucket = RANGE_BUCKET_COUNT - 1
+	}
+
+	sc.current.RangeHistogram[bucket]++
 }
 
 // Update should be called periodically (e.g., every second) to check if

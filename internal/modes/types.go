@@ -20,6 +20,10 @@ const (
 	INVALID_ALTITUDE = -9999
 
 	MODES_NON_ICAO_ADDRESS = 1 << 24 // Set on addresses to indicate they are not ICAO addresses
+
+	// MLAT timestamp magic value - 'MLAT' as a 48-bit timestamp
+	// If a message's TimestampMsg field equals this, it's an MLAT message
+	MAGIC_MLAT_TIMESTAMP = 0xFF004D4C4154
 )
 
 // DataSource indicates where a piece of data came from (in order of increasing priority)
@@ -128,6 +132,7 @@ type Message struct {
 
 	Timestamp    uint64    // Timestamp of the message (12MHz clock)
 	SysTimestamp time.Time // Timestamp of the message (system time)
+	TimestampMsg uint64    // Timestamp from message (for MLAT detection)
 
 	Remote      bool    // If true, this message is from a remote station
 	SignalLevel float64 // RSSI, in the range [0..1], as a fraction of full-scale power
@@ -410,4 +415,21 @@ type Aircraft struct {
 
 	// First message received (for deferred output)
 	FirstMessage Message
+
+	// FATSV (FlightAware TSV) output tracking
+	// These fields track the last emitted values to avoid redundant updates
+	FATSVLastEmitted          uint64    // Time (millis) aircraft was last FATSV emitted
+	FATSVEmittedAltitude      int       // Last emitted barometric altitude
+	FATSVEmittedAltitudeGNSS  int       // Last emitted GNSS altitude
+	FATSVEmittedHeading       uint32    // Last emitted true heading
+	FATSVEmittedHeadingMag    uint32    // Last emitted magnetic heading
+	FATSVEmittedSpeed         uint32    // Last emitted ground speed
+	FATSVEmittedSpeedIAS      uint32    // Last emitted IAS
+	FATSVEmittedSpeedTAS      uint32    // Last emitted TAS
+	FATSVEmittedAirGround     AirGround // Last emitted air/ground state
+	FATSVEmittedBDS10         [7]byte   // Last emitted BDS 1,0 message
+	FATSVEmittedBDS30         [7]byte   // Last emitted BDS 3,0 message
+	FATSVEmittedESStatus      [7]byte   // Last emitted ES operational status message
+	FATSVEmittedESTarget      [7]byte   // Last emitted ES target status message
+	FATSVEmittedESACASRA      [7]byte   // Last emitted ES ACAS RA report message
 }

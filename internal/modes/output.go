@@ -171,6 +171,7 @@ func DecodeBeast(data []byte) (*Message, []byte, error) {
 	}
 
 	mm.Timestamp = ts
+	mm.TimestampMsg = ts // Beast format timestamp is used for MLAT detection
 	mm.SignalLevel = signalLevel
 
 	return mm, data[pos:], nil

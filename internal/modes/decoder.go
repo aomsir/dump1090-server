@@ -382,6 +382,11 @@ func DecodeModesMessageWithFilter(msg []byte, filter *ICAOFilter) (*Message, int
 		}
 	}
 
+	// MLAT overrides all other sources (matching C version mode_s.c:732-734)
+	if mm.Remote && mm.TimestampMsg == MAGIC_MLAT_TIMESTAMP {
+		mm.Source = SOURCE_MLAT
+	}
+
 	return mm, 0
 }
 

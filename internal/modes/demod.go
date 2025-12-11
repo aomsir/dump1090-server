@@ -340,8 +340,11 @@ func (d *Demodulator) Demodulate2400(mag *MagBuf) {
 			d.statsCollector.AddSignalPower(mm.SignalLevel)
 		}
 
-		// Add address to known filter
-		d.AddKnownICAO(mm.Addr)
+		// Add address to known filter (matching C version logic)
+		// Only add if no CRC errors and specific DF types (DF17/18 or DF11 with IID=0)
+		if mm.Corrected == 0 && (mm.MsgType == 17 || mm.MsgType == 18 || (mm.MsgType == 11 && mm.IID == 0)) {
+			d.AddKnownICAO(mm.Addr)
+		}
 
 		// Skip over the message
 		j += msgLen * 12 / 5

@@ -1,0 +1,52 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Build artifacts
+dump1090go
+*.exe
+*.test
+*.out
+*.prof
+
+# Dependencies
+vendor/
+
+# Test coverage
+*.coverprofile
+coverage.out
+
+# Documentation
+*.md
+docs/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Reference C code (not needed in container)
+dump1090-libs/
+
+# Generated data
+json/
+*.json
+
+# Scripts (not needed in container)
+scripts/
+
+# Test data
+testdata/

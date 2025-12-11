@@ -117,11 +117,12 @@ type Config struct {
 type App struct {
 	config      *Config
 	tracker     *modes.Tracker
-	demod       *modes.Demodulator
-	converter   *rtlsdr.ConverterState
-	device      *rtlsdr.Device
-	interactive *ui.Interactive
-	jsonWriter  *modes.JSONWriter
+	demod          *modes.Demodulator
+	statsCollector *modes.StatsCollector
+	converter      *rtlsdr.ConverterState
+	device         *rtlsdr.Device
+	interactive    *ui.Interactive
+	jsonWriter     *modes.JSONWriter
 
 	// Statistics
 	totalMessages   uint64
@@ -158,12 +159,19 @@ func main() {
 	// Initialize magnitude lookup table
 	rtlsdr.InitMagLUT()
 
+	// Create statistics collector
+	statsCollector := modes.NewStatsCollector()
+
 	// Create application
 	app := &App{
-		config:  config,
-		tracker: modes.NewTracker(),
-		demod:   modes.NewDemodulator(),
+		config:         config,
+		tracker:        modes.NewTracker(),
+		demod:          modes.NewDemodulator(),
+		statsCollector: statsCollector,
 	}
+
+	// Inject stats collector into demodulator
+	app.demod.SetStatsCollector(statsCollector)
 
 	// Initialize interactive mode if enabled
 	if config.Interactive {
@@ -189,6 +197,9 @@ func main() {
 			LocationAccuracy: config.LocationAccuracy,
 			Version:          "1.0.0",
 		}, app.tracker, &app.totalMessages)
+
+		// Inject stats collector into JSON writer
+		app.jsonWriter.SetStatsCollector(statsCollector)
 
 		// Write initial files
 		app.jsonWriter.WriteInitialFiles()
@@ -751,6 +762,11 @@ func (app *App) runPeriodicTasks() {
 			tickCount++
 			if (app.interactive == nil && app.jsonWriter == nil) || tickCount >= 10 {
 				app.tracker.PeriodicUpdate()
+
+				// Update statistics collector
+				if app.statsCollector != nil {
+					app.statsCollector.Update()
+				}
 
 				// Expire old ICAO filter entries (every second is enough,
 				// actual expiry happens every 60 seconds internally)

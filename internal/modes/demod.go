@@ -23,7 +23,10 @@ type Demodulator struct {
 	// icaoFilter for validating addresses
 	icaoFilter *ICAOFilter
 
-	// Statistics
+	// Statistics collector (optional)
+	statsCollector *StatsCollector
+
+	// Statistics (local counters for GetStats)
 	stats struct {
 		preambles           int64
 		rejectedBad         int64
@@ -47,6 +50,11 @@ func NewDemodulator() *Demodulator {
 	return &Demodulator{
 		icaoFilter: NewICAOFilter(),
 	}
+}
+
+// SetStatsCollector sets the statistics collector.
+func (d *Demodulator) SetStatsCollector(sc *StatsCollector) {
+	d.statsCollector = sc
 }
 
 // SetMessageHandler sets the callback for decoded messages.
@@ -193,6 +201,9 @@ func (d *Demodulator) Demodulate2400(mag *MagBuf) {
 
 		// Try all phases
 		d.stats.preambles++
+		if d.statsCollector != nil {
+			d.statsCollector.AddPreamble()
+		}
 		var bestMsg []byte
 		bestScore := -2
 		bestPhase := -1
@@ -263,8 +274,14 @@ func (d *Demodulator) Demodulate2400(mag *MagBuf) {
 		if bestScore < 0 {
 			if bestScore == -1 {
 				d.stats.rejectedUnknownICAO++
+				if d.statsCollector != nil {
+					d.statsCollector.AddDemodResult(false, false, 0, true)
+				}
 			} else {
 				d.stats.rejectedBad++
+				if d.statsCollector != nil {
+					d.statsCollector.AddDemodResult(false, false, 0, false)
+				}
 			}
 			continue
 		}
@@ -276,13 +293,22 @@ func (d *Demodulator) Demodulate2400(mag *MagBuf) {
 		if result < 0 {
 			if result == -1 {
 				d.stats.rejectedUnknownICAO++
+				if d.statsCollector != nil {
+					d.statsCollector.AddDemodResult(false, false, 0, true)
+				}
 			} else {
 				d.stats.rejectedBad++
+				if d.statsCollector != nil {
+					d.statsCollector.AddDemodResult(false, false, 0, false)
+				}
 			}
 			continue
 		}
 
 		d.stats.accepted[mm.Corrected]++
+		if d.statsCollector != nil {
+			d.statsCollector.AddDemodResult(false, true, mm.Corrected, false)
+		}
 
 		// Set timestamp
 		mm.Timestamp = mag.SampleTimestamp + uint64(j*5+bestPhase)
@@ -309,6 +335,11 @@ func (d *Demodulator) Demodulate2400(mag *MagBuf) {
 			d.stats.strongSignalCount++
 		}
 
+		// Record in stats collector
+		if d.statsCollector != nil {
+			d.statsCollector.AddSignalPower(mm.SignalLevel)
+		}
+
 		// Add address to known filter
 		d.AddKnownICAO(mm.Addr)
 
@@ -323,8 +354,18 @@ func (d *Demodulator) Demodulate2400(mag *MagBuf) {
 
 	// Update noise power
 	sumSignalPower := float64(sumScaledSignalPower) / 65535.0 / 65535.0
-	d.stats.noisePowerSum += mag.TotalPower - sumSignalPower
+	noisePower := mag.TotalPower - sumSignalPower
+	d.stats.noisePowerSum += noisePower
 	d.stats.noisePowerCount += int64(mlen)
+
+	// Record in stats collector (average noise per sample)
+	if d.statsCollector != nil && mlen > 0 {
+		avgNoise := noisePower / float64(mlen)
+		for i := 0; i < mlen; i++ {
+			d.statsCollector.AddNoisePower(avgNoise)
+		}
+		d.statsCollector.AddSamplesProcessed(uint64(mlen))
+	}
 }
 
 // Byte decoding functions for each phase
@@ -878,6 +919,9 @@ func (d *Demodulator) Demodulate2400AC(mag *MagBuf) {
 		// Skip past this message (24 bits * 87/25 samples ≈ 83 samples)
 		f1Sample += int(24 * 87 / 25)
 		d.stats.modeAC++
+		if d.statsCollector != nil {
+			d.statsCollector.AddModeACMessage()
+		}
 	}
 }
 

@@ -56,9 +56,10 @@ type JSONWriter struct {
 	receiverWritten bool   // Whether receiver.json has been written
 
 	// References
-	tracker       *Tracker
-	totalMessages *uint64
-	version       string
+	tracker        *Tracker
+	statsCollector *StatsCollector
+	totalMessages  *uint64
+	version        string
 }
 
 // JSONWriterConfig holds configuration for JSONWriter
@@ -109,6 +110,11 @@ func NewJSONWriter(cfg JSONWriterConfig, tracker *Tracker, totalMessages *uint64
 		tracker:          tracker,
 		totalMessages:    totalMessages,
 	}
+}
+
+// SetStatsCollector sets the statistics collector reference
+func (w *JSONWriter) SetStatsCollector(sc *StatsCollector) {
+	w.statsCollector = sc
 }
 
 // writeJsonToFile writes content to a file atomically (write to temp, then rename)
@@ -336,15 +342,176 @@ func (w *JSONWriter) getHistoryCount() int {
 
 // generateStatsJSON generates stats.json content matching C version format
 func (w *JSONWriter) generateStatsJSON() []byte {
-	now := time.Now()
-	totalMsgs := atomic.LoadUint64(w.totalMessages)
+	if w.statsCollector == nil {
+		// Fallback to simple format if no collector
+		now := time.Now()
+		totalMsgs := atomic.LoadUint64(w.totalMessages)
+		var buf []byte
+		buf = append(buf, fmt.Sprintf("{ \"latest\" : { \"start\" : %.1f, \"end\" : %.1f",
+			float64(now.Unix()), float64(now.Unix()))...)
+		buf = append(buf, fmt.Sprintf(", \"messages\" : %d }", totalMsgs)...)
+		buf = append(buf, " }\n"...)
+		return buf
+	}
 
-	var buf []byte
-	buf = append(buf, fmt.Sprintf("{ \"latest\" : { \"start\" : %.1f, \"end\" : %.1f",
-		float64(now.Unix()), float64(now.Unix()))...)
-	buf = append(buf, fmt.Sprintf(", \"messages\" : %d }", totalMsgs)...)
-	buf = append(buf, " }\n"...)
+	// Get all time windows
+	latest := w.statsCollector.GetLatest()
+	last5min := w.statsCollector.GetLast5Min()
+	last15min := w.statsCollector.GetLast15Min()
+	total := w.statsCollector.GetAllTime()
 
+	// Build JSON
+	buf := make([]byte, 0, 4096)
+	buf = append(buf, "{\n"...)
+
+	// Latest (most recent complete 1-minute period)
+	buf = append(buf, "  \"latest\" : "...)
+	buf = append(buf, formatStatsBlock(&latest, true)...)
+	buf = append(buf, ",\n"...)
+
+	// Last 1 minute (alias of latest)
+	buf = append(buf, "  \"last1min\" : "...)
+	buf = append(buf, formatStatsBlock(&latest, true)...)
+	buf = append(buf, ",\n"...)
+
+	// Last 5 minutes
+	buf = append(buf, "  \"last5min\" : "...)
+	buf = append(buf, formatStatsBlock(&last5min, false)...)
+	buf = append(buf, ",\n"...)
+
+	// Last 15 minutes
+	buf = append(buf, "  \"last15min\" : "...)
+	buf = append(buf, formatStatsBlock(&last15min, false)...)
+	buf = append(buf, ",\n"...)
+
+	// Total (all time)
+	buf = append(buf, "  \"total\" : "...)
+	buf = append(buf, formatStatsBlock(&total, false)...)
+	buf = append(buf, "\n}\n"...)
+
+	return buf
+}
+
+// formatStatsBlock formats a Stats struct into JSON format
+func formatStatsBlock(s *Stats, includeLocal bool) []byte {
+	buf := make([]byte, 0, 1024)
+	buf = append(buf, "{\n"...)
+
+	// Time window
+	buf = append(buf, fmt.Sprintf("    \"start\" : %.1f,\n", float64(s.Start)/1000.0)...)
+	buf = append(buf, fmt.Sprintf("    \"end\" : %.1f", float64(s.End)/1000.0)...)
+
+	// Local demodulator stats (only if includeLocal is true, i.e., for latest/last1min)
+	if includeLocal && (s.SamplesProcessed > 0 || s.DemodPreambles > 0) {
+		buf = append(buf, ",\n    \"local\" : {\n"...)
+
+		// Samples
+		if s.SamplesProcessed > 0 {
+			buf = append(buf, fmt.Sprintf("      \"samples_processed\" : %d,\n", s.SamplesProcessed)...)
+			buf = append(buf, fmt.Sprintf("      \"samples_dropped\" : %d,\n", s.SamplesDropped)...)
+		}
+
+		// Mode S/A/C counts
+		totalModes := uint32(0)
+		for _, count := range s.DemodAccepted {
+			totalModes += count
+		}
+		buf = append(buf, fmt.Sprintf("      \"modeac\" : %d,\n", s.DemodModeAC)...)
+		buf = append(buf, fmt.Sprintf("      \"modes\" : %d,\n", totalModes)...)
+		buf = append(buf, fmt.Sprintf("      \"bad\" : %d,\n", s.DemodRejectedBad)...)
+		buf = append(buf, fmt.Sprintf("      \"unknown_icao\" : %d", s.DemodRejectedUnknownICAO)...)
+
+		// Accepted array [0-bit errors, 1-bit, 2-bit...]
+		buf = append(buf, ",\n      \"accepted\" : ["...)
+		for i, count := range s.DemodAccepted {
+			if i > 0 {
+				buf = append(buf, ", "...)
+			}
+			buf = append(buf, fmt.Sprintf("%d", count)...)
+		}
+		buf = append(buf, "]"...)
+
+		// Signal/noise levels (in dBFS)
+		if s.SignalPowerCount > 0 {
+			avgSignal := s.SignalPowerSum / float64(s.SignalPowerCount)
+			signalDB := 10 * math.Log10(avgSignal + 1e-10)
+			buf = append(buf, fmt.Sprintf(",\n      \"signal\" : %.1f", signalDB)...)
+		}
+		if s.NoisePowerCount > 0 {
+			avgNoise := s.NoisePowerSum / float64(s.NoisePowerCount)
+			noiseDB := 10 * math.Log10(avgNoise + 1e-10)
+			buf = append(buf, fmt.Sprintf(",\n      \"noise\" : %.1f", noiseDB)...)
+		}
+		if s.PeakSignalPower > 0 {
+			peakDB := 10 * math.Log10(s.PeakSignalPower)
+			buf = append(buf, fmt.Sprintf(",\n      \"peak_signal\" : %.1f", peakDB)...)
+		}
+		if s.StrongSignalCount > 0 {
+			buf = append(buf, fmt.Sprintf(",\n      \"strong_signals\" : %d", s.StrongSignalCount)...)
+		}
+
+		buf = append(buf, "\n    }"...)
+	}
+
+	// CPR decoding stats
+	if s.CPRGlobalOK > 0 || s.CPRLocalOK > 0 {
+		buf = append(buf, ",\n    \"cpr\" : {\n"...)
+		buf = append(buf, fmt.Sprintf("      \"surface\" : %d,\n", s.CPRSurface)...)
+		buf = append(buf, fmt.Sprintf("      \"airborne\" : %d,\n", s.CPRAirborne)...)
+		buf = append(buf, fmt.Sprintf("      \"global_ok\" : %d", s.CPRGlobalOK)...)
+
+		if s.CPRGlobalBad > 0 {
+			buf = append(buf, fmt.Sprintf(",\n      \"global_bad\" : %d", s.CPRGlobalBad)...)
+		}
+		if s.CPRGlobalRangeChecks > 0 {
+			buf = append(buf, fmt.Sprintf(",\n      \"global_range\" : %d", s.CPRGlobalRangeChecks)...)
+		}
+		if s.CPRGlobalSpeedChecks > 0 {
+			buf = append(buf, fmt.Sprintf(",\n      \"global_speed\" : %d", s.CPRGlobalSpeedChecks)...)
+		}
+		if s.CPRGlobalSkipped > 0 {
+			buf = append(buf, fmt.Sprintf(",\n      \"global_skipped\" : %d", s.CPRGlobalSkipped)...)
+		}
+
+		buf = append(buf, fmt.Sprintf(",\n      \"local_ok\" : %d", s.CPRLocalOK)...)
+		if s.CPRLocalAircraftRelative > 0 {
+			buf = append(buf, fmt.Sprintf(",\n      \"local_aircraft_relative\" : %d", s.CPRLocalAircraftRelative)...)
+		}
+		if s.CPRLocalReceiverRelative > 0 {
+			buf = append(buf, fmt.Sprintf(",\n      \"local_receiver_relative\" : %d", s.CPRLocalReceiverRelative)...)
+		}
+		if s.CPRLocalSkipped > 0 {
+			buf = append(buf, fmt.Sprintf(",\n      \"local_skipped\" : %d", s.CPRLocalSkipped)...)
+		}
+		if s.CPRLocalRangeChecks > 0 {
+			buf = append(buf, fmt.Sprintf(",\n      \"local_range\" : %d", s.CPRLocalRangeChecks)...)
+		}
+		if s.CPRLocalSpeedChecks > 0 {
+			buf = append(buf, fmt.Sprintf(",\n      \"local_speed\" : %d", s.CPRLocalSpeedChecks)...)
+		}
+		if s.CPRFiltered > 0 {
+			buf = append(buf, fmt.Sprintf(",\n      \"filtered\" : %d", s.CPRFiltered)...)
+		}
+
+		buf = append(buf, "\n    }"...)
+	}
+
+	// Aircraft tracking
+	if s.UniqueAircraft > 0 {
+		buf = append(buf, ",\n    \"tracks\" : {\n"...)
+		buf = append(buf, fmt.Sprintf("      \"all\" : %d", s.UniqueAircraft)...)
+		if s.SingleMessageAircraft > 0 {
+			buf = append(buf, fmt.Sprintf(",\n      \"single_message\" : %d", s.SingleMessageAircraft)...)
+		}
+		buf = append(buf, "\n    }"...)
+	}
+
+	// Messages total
+	if s.MessagesTotal > 0 {
+		buf = append(buf, fmt.Sprintf(",\n    \"messages\" : %d", s.MessagesTotal)...)
+	}
+
+	buf = append(buf, "\n  }"...)
 	return buf
 }
 

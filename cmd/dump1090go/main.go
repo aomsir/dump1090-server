@@ -127,6 +127,9 @@ type Config struct {
 	DisableRawIn   bool
 	DisableBeastIn bool
 
+	// Network bind address
+	NetBindAddress string
+
 	// Receiver location
 	Latitude  float64
 	Longitude float64
@@ -374,6 +377,9 @@ func parseFlags() *Config {
 	flag.IntVar(&config.BeastInPort, "beast-in-port", defaultBeastInPort, "Beast input port")
 	flag.BoolVar(&config.DisableRawIn, "no-raw-in", false, "Disable raw input")
 	flag.BoolVar(&config.DisableBeastIn, "no-beast-in", false, "Disable Beast input")
+
+	// Network bind address
+	flag.StringVar(&config.NetBindAddress, "net-bind-address", "", "Network bind address (empty for all interfaces)")
 
 	// Receiver location
 	flag.Float64Var(&config.Latitude, "lat", 0, "Receiver latitude")
@@ -723,7 +729,7 @@ func (app *App) runHTTPServer() {
 	})
 
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", app.config.HTTPPort),
+		Addr:    fmt.Sprintf("%s:%d", app.config.NetBindAddress, app.config.HTTPPort),
 		Handler: mux,
 	}
 
@@ -732,7 +738,7 @@ func (app *App) runHTTPServer() {
 		server.Shutdown(context.Background())
 	}()
 
-	log.Printf("HTTP server listening on port %d", app.config.HTTPPort)
+	log.Printf("HTTP server listening on %s:%d", app.config.NetBindAddress, app.config.HTTPPort)
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		log.Printf("HTTP server error: %v", err)
 	}
@@ -759,14 +765,15 @@ func (app *App) runFATSVServer() {
 }
 
 func (app *App) runTCPServer(name string, port int, clients *sync.Map) {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	addr := fmt.Sprintf("%s:%d", app.config.NetBindAddress, port)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Printf("%s server error: %v", name, err)
 		return
 	}
 	defer listener.Close()
 
-	log.Printf("%s server listening on port %d", name, port)
+	log.Printf("%s server listening on %s", name, addr)
 
 	go func() {
 		<-app.ctx.Done()
@@ -936,14 +943,15 @@ func (app *App) runPeriodicTasks() {
 func (app *App) runRawInputServer() {
 	defer app.wg.Done()
 
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", app.config.RawInPort))
+	addr := fmt.Sprintf("%s:%d", app.config.NetBindAddress, app.config.RawInPort)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Printf("Raw input server error: %v", err)
 		return
 	}
 	defer listener.Close()
 
-	log.Printf("Raw input server listening on port %d", app.config.RawInPort)
+	log.Printf("Raw input server listening on %s", addr)
 
 	go func() {
 		<-app.ctx.Done()
@@ -1111,14 +1119,15 @@ func (app *App) decodeRawMessage(line string) *modes.Message {
 func (app *App) runBeastInputServer() {
 	defer app.wg.Done()
 
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", app.config.BeastInPort))
+	addr := fmt.Sprintf("%s:%d", app.config.NetBindAddress, app.config.BeastInPort)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Printf("Beast input server error: %v", err)
 		return
 	}
 	defer listener.Close()
 
-	log.Printf("Beast input server listening on port %d", app.config.BeastInPort)
+	log.Printf("Beast input server listening on %s", addr)
 
 	go func() {
 		<-app.ctx.Done()

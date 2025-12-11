@@ -408,8 +408,11 @@ func (app *App) handleSamples(iq []byte) {
 	// Copy overlap from previous buffer
 	copy(app.magBuf.Data[:overlapSamples], app.magBuf.Data[app.magBuf.Length:])
 
-	// Demodulate
+	// Demodulate Mode S
 	app.demod.Demodulate2400(app.magBuf)
+
+	// Demodulate Mode A/C (older transponders)
+	app.demod.Demodulate2400AC(app.magBuf)
 }
 
 func (app *App) handleMessage(mm *modes.Message) {
@@ -538,8 +541,11 @@ func (app *App) processFile(filename string) error {
 		// Copy overlap from previous buffer
 		copy(app.magBuf.Data[:overlapSamples], app.magBuf.Data[app.magBuf.Length:])
 
-		// Demodulate
+		// Demodulate Mode S
 		app.demod.Demodulate2400(app.magBuf)
+
+		// Demodulate Mode A/C (older transponders)
+		app.demod.Demodulate2400AC(app.magBuf)
 	}
 
 	return nil

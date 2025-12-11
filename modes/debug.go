@@ -92,53 +92,53 @@ func DisplayModesMessage(mm *Message, cfg DisplayConfig, w io.Writer) {
 	// DF type specific output (matching C version mode_s.c:1554-1623)
 	switch mm.MsgType {
 	case 0:
-		fmt.Fprintf(w, "DF:0 addr:%06X VS:%u CC:%u SL:%u RI:%u AC:%u\n",
+		fmt.Fprintf(w, "DF:0 addr:%06X VS:%d CC:%d SL:%d RI:%d AC:%d\n",
 			mm.Addr, mm.VS, mm.CC, mm.SL, mm.RI, mm.AC)
 
 	case 4:
-		fmt.Fprintf(w, "DF:4 addr:%06X FS:%u DR:%u UM:%u AC:%u\n",
+		fmt.Fprintf(w, "DF:4 addr:%06X FS:%d DR:%d UM:%d AC:%d\n",
 			mm.Addr, mm.FS, mm.DR, mm.UM, mm.AC)
 
 	case 5:
-		fmt.Fprintf(w, "DF:5 addr:%06X FS:%u DR:%u UM:%u ID:%u\n",
+		fmt.Fprintf(w, "DF:5 addr:%06X FS:%d DR:%d UM:%d ID:%d\n",
 			mm.Addr, mm.FS, mm.DR, mm.UM, mm.ID)
 
 	case 11:
-		fmt.Fprintf(w, "DF:11 AA:%06X IID:%u CA:%u\n",
+		fmt.Fprintf(w, "DF:11 AA:%06X IID:%d CA:%d\n",
 			mm.AA, mm.IID, mm.CA)
 
 	case 16:
-		fmt.Fprintf(w, "DF:16 addr:%06X VS:%u SL:%u RI:%u AC:%u MV:",
+		fmt.Fprintf(w, "DF:16 addr:%06X VS:%d SL:%d RI:%d AC:%d MV:",
 			mm.Addr, mm.VS, mm.SL, mm.RI, mm.AC)
 		printHexBytes(w, mm.MV[:])
 		fmt.Fprintln(w)
 
 	case 17:
-		fmt.Fprintf(w, "DF:17 AA:%06X CA:%u ME:",
+		fmt.Fprintf(w, "DF:17 AA:%06X CA:%d ME:",
 			mm.AA, mm.CA)
 		printHexBytes(w, mm.ME[:])
 		fmt.Fprintln(w)
 
 	case 18:
-		fmt.Fprintf(w, "DF:18 AA:%06X CF:%u ME:",
+		fmt.Fprintf(w, "DF:18 AA:%06X CF:%d ME:",
 			mm.AA, mm.CF)
 		printHexBytes(w, mm.ME[:])
 		fmt.Fprintln(w)
 
 	case 20:
-		fmt.Fprintf(w, "DF:20 addr:%06X FS:%u DR:%u UM:%u AC:%u MB:",
+		fmt.Fprintf(w, "DF:20 addr:%06X FS:%d DR:%d UM:%d AC:%d MB:",
 			mm.Addr, mm.FS, mm.DR, mm.UM, mm.AC)
 		printHexBytes(w, mm.MB[:])
 		fmt.Fprintln(w)
 
 	case 21:
-		fmt.Fprintf(w, "DF:21 addr:%06X FS:%u DR:%u UM:%u ID:%u MB:",
+		fmt.Fprintf(w, "DF:21 addr:%06X FS:%d DR:%d UM:%d ID:%d MB:",
 			mm.Addr, mm.FS, mm.DR, mm.UM, mm.ID)
 		printHexBytes(w, mm.MB[:])
 		fmt.Fprintln(w)
 
 	case 24, 25, 26, 27, 28, 29, 30, 31:
-		fmt.Fprintf(w, "DF:%d addr:%06X KE:%u ND:%u MD:",
+		fmt.Fprintf(w, "DF:%d addr:%06X KE:%d ND:%d MD:",
 			mm.MsgType, mm.Addr, mm.KE, mm.ND)
 		printHexBytes(w, mm.MD[:])
 		fmt.Fprintln(w)
@@ -148,12 +148,12 @@ func DisplayModesMessage(mm *Message, cfg DisplayConfig, w io.Writer) {
 	fmt.Fprintf(w, " %s", DFToString(mm.MsgType))
 	if mm.MsgType == 17 || mm.MsgType == 18 {
 		if ESTypeHasSubtype(mm.METype) {
-			fmt.Fprintf(w, " %s (%u/%u)",
+			fmt.Fprintf(w, " %s (%d/%d)",
 				ESTypeName(mm.METype, mm.MESub),
 				mm.METype,
 				mm.MESub)
 		} else {
-			fmt.Fprintf(w, " %s (%u)",
+			fmt.Fprintf(w, " %s (%d)",
 				ESTypeName(mm.METype, mm.MESub),
 				mm.METype)
 		}
@@ -189,13 +189,13 @@ func DisplayModesMessage(mm *Message, cfg DisplayConfig, w io.Writer) {
 
 	// Heading (matching C version mode_s.c:1663-1665)
 	if mm.HeadingValid {
-		fmt.Fprintf(w, "  Heading:       %u %s\n",
+		fmt.Fprintf(w, "  Heading:       %d %s\n",
 			mm.Heading, HeadingSourceToString(mm.HeadingSource))
 	}
 
 	// Speed (matching C version mode_s.c:1667-1671)
 	if mm.SpeedValid {
-		fmt.Fprintf(w, "  Speed:         %u kt %s\n",
+		fmt.Fprintf(w, "  Speed:         %d kt %s\n",
 			mm.Speed, SpeedSourceToString(mm.SpeedSource))
 	}
 
@@ -224,7 +224,7 @@ func DisplayModesMessage(mm *Message, cfg DisplayConfig, w io.Writer) {
 	if mm.CPRValid {
 		fmt.Fprintf(w, "  CPR type:      %s\n"+
 			"  CPR odd flag:  %s\n"+
-			"  CPR NUCp/NIC:  %u\n",
+			"  CPR NUCp/NIC:  %d\n",
 			CPRTypeToString(mm.CPRType),
 			boolToOddEven(mm.CPROdd),
 			mm.CPRNUCP)
@@ -234,8 +234,8 @@ func DisplayModesMessage(mm *Message, cfg DisplayConfig, w io.Writer) {
 			if mm.CPRRelative {
 				relativeStr = " (relative)"
 			}
-			fmt.Fprintf(w, "  CPR latitude:  %.5f (%u)\n"+
-				"  CPR longitude: %.5f (%u)\n"+
+			fmt.Fprintf(w, "  CPR latitude:  %.5f (%d)\n"+
+				"  CPR longitude: %.5f (%d)\n"+
 				"  CPR decoding:  %s%s\n",
 				mm.DecodedLat,
 				mm.CPRLat,
@@ -244,8 +244,8 @@ func DisplayModesMessage(mm *Message, cfg DisplayConfig, w io.Writer) {
 				cprDecodingTypeToString(mm.CPROdd, mm.CPRRelative),
 				relativeStr)
 		} else {
-			fmt.Fprintf(w, "  CPR latitude:  (%u)\n"+
-				"  CPR longitude: (%u)\n",
+			fmt.Fprintf(w, "  CPR latitude:  (%d)\n"+
+				"  CPR longitude: (%d)\n",
 				mm.CPRLat,
 				mm.CPRLon)
 		}

@@ -23,9 +23,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aomsir/dump1090-mutability-go/internal/modes"
-	"github.com/aomsir/dump1090-mutability-go/internal/rtlsdr"
-	"github.com/aomsir/dump1090-mutability-go/internal/ui"
+	"github.com/aomsir/dump1090-mutability-go/modes"
+	"github.com/aomsir/dump1090-mutability-go/rtlsdr"
+	"github.com/aomsir/dump1090-mutability-go/ui"
 )
 
 // NetworkClient wraps a connection with heartbeat tracking

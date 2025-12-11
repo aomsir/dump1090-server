@@ -1,7 +1,11 @@
 // Package modes defines core data structures for Mode S message decoding.
 //
-// This file contains types translated from dump1090.h, maintaining
-// compatibility with the C implementation.
+// This file contains types translated from dump1090-mutability's dump1090.h,
+// maintaining compatibility with the C implementation.
+//
+// Original Copyright (c) 2014-2016 Oliver Jowett <oliver@mutability.co.uk>
+// and Copyright (C) 2012 Salvatore Sanfilippo <antirez@gmail.com>
+// Licensed under GPL v2+ / BSD
 package modes
 
 import "time"

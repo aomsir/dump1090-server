@@ -1,8 +1,11 @@
 // Package modes implements Mode S message decoding and output formats.
 //
-// output.go: output format encoders (Beast binary, JSON)
+// output.go: output format encoders translated from dump1090-mutability's
+// net_io.c, maintaining compatibility with the C implementation.
 //
-// This provides encoding for common ADS-B data sharing formats.
+// Original Copyright (c) 2014-2016 Oliver Jowett <oliver@mutability.co.uk>
+// and Copyright (C) 2012 Salvatore Sanfilippo <antirez@gmail.com>
+// Licensed under GPL v2+ / BSD
 package modes
 
 import (

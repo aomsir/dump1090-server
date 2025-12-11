@@ -25,6 +25,7 @@ import (
 
 	"github.com/aomsir/dump1090-mutability-go/internal/modes"
 	"github.com/aomsir/dump1090-mutability-go/internal/rtlsdr"
+	"github.com/aomsir/dump1090-mutability-go/internal/ui"
 )
 
 const (
@@ -97,15 +98,22 @@ type Config struct {
 
 	// Net-only mode
 	NetOnly bool
+
+	// Interactive mode settings
+	Interactive     bool
+	InteractiveRows int
+	InteractiveTTL  int
+	RTL1090         bool
 }
 
 // App holds the application state
 type App struct {
-	config    *Config
-	tracker   *modes.Tracker
-	demod     *modes.Demodulator
-	converter *rtlsdr.ConverterState
-	device    *rtlsdr.Device
+	config      *Config
+	tracker     *modes.Tracker
+	demod       *modes.Demodulator
+	converter   *rtlsdr.ConverterState
+	device      *rtlsdr.Device
+	interactive *ui.Interactive
 
 	// Statistics
 	totalMessages   uint64
@@ -147,6 +155,18 @@ func main() {
 		config:  config,
 		tracker: modes.NewTracker(),
 		demod:   modes.NewDemodulator(),
+	}
+
+	// Initialize interactive mode if enabled
+	if config.Interactive {
+		app.interactive = ui.NewInteractive()
+		app.interactive.Rows = config.InteractiveRows
+		app.interactive.DisplayTTL = config.InteractiveTTL * 1000 // Convert seconds to milliseconds
+		app.interactive.RTL1090 = config.RTL1090
+		app.interactive.Metric = config.Metric
+
+		// Suppress log output in interactive mode (like C version)
+		log.SetOutput(io.Discard)
 	}
 
 	// Set receiver location if provided
@@ -273,6 +293,12 @@ func parseFlags() *Config {
 	flag.BoolVar(&config.FixCRC, "fix", false, "Fix single-bit CRC errors")
 	flag.BoolVar(&config.Aggressive, "aggressive", false, "Fix two-bit CRC errors")
 	flag.BoolVar(&config.Metric, "metric", false, "Use metric units")
+
+	// Interactive mode
+	flag.BoolVar(&config.Interactive, "interactive", false, "Interactive mode with TTY display")
+	flag.IntVar(&config.InteractiveRows, "interactive-rows", 22, "Maximum number of rows in interactive mode")
+	flag.IntVar(&config.InteractiveTTL, "interactive-ttl", 60, "Display TTL in seconds for interactive mode")
+	flag.BoolVar(&config.RTL1090, "interactive-rtl1090", false, "Use RTL1090 display format")
 
 	// Net-only mode
 	flag.BoolVar(&config.NetOnly, "net-only", false, "Network only mode, no RTL-SDR device")
@@ -604,16 +630,35 @@ func (app *App) runTCPServer(name string, port int, clients *sync.Map) {
 func (app *App) runPeriodicTasks() {
 	defer app.wg.Done()
 
-	ticker := time.NewTicker(1 * time.Second)
+	// Use 100ms ticker for interactive mode (it internally checks refresh time)
+	// and count to 10 for 1-second periodic updates
+	var tickInterval time.Duration
+	if app.interactive != nil {
+		tickInterval = 100 * time.Millisecond
+	} else {
+		tickInterval = 1 * time.Second
+	}
+
+	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
 
+	var tickCount int
 	for {
 		select {
 		case <-app.ctx.Done():
 			return
 		case <-ticker.C:
-			// Update tracker (remove stale aircraft)
-			app.tracker.PeriodicUpdate()
+			// Update interactive display if enabled
+			if app.interactive != nil {
+				app.interactive.ShowData(app.tracker)
+			}
+
+			// Update tracker every ~1 second (remove stale aircraft)
+			tickCount++
+			if app.interactive == nil || tickCount >= 10 {
+				app.tracker.PeriodicUpdate()
+				tickCount = 0
+			}
 		}
 	}
 }

@@ -425,7 +425,7 @@ func parseFlags() *Config {
 	flag.BoolVar(&config.RTL1090, "interactive-rtl1090", false, "Use RTL1090 display format")
 
 	// JSON file output
-	flag.StringVar(&config.WriteJSON, "write-json", "", "Directory for JSON output files")
+	flag.StringVar(&config.WriteJSON, "write-json", "/run/dump1090-mutability", "Directory for JSON output files")
 	flag.Float64Var(&config.WriteJSONEvery, "write-json-every", 1.0, "Interval in seconds for aircraft.json")
 	flag.IntVar(&config.HistorySize, "history-size", 120, "Number of history snapshot files")
 	flag.IntVar(&config.HistoryInterval, "history-interval", 30, "Interval in seconds for history snapshots")

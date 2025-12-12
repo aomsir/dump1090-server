@@ -135,8 +135,18 @@ type Config struct {
 	Longitude float64
 	MaxRange  float64
 
-	// Other settings
-	Quiet      bool
+	// Output control (matching C version)
+	Quiet    bool   // --quiet: suppress all output
+	Raw      bool   // --raw: output only raw messages (*HEXDATA;)
+	OnlyAddr bool   // --onlyaddr: output only ICAO addresses
+	MLAT     bool   // --mlat: include MLAT timestamp in raw output
+	ShowOnly uint32 // --show-only: only show messages from this ICAO
+
+	// Statistics output (matching C version)
+	Stats      bool // --stats: enable statistics display
+	StatsEvery int  // --stats-every: interval in seconds for stats display
+
+	// CRC error correction
 	FixCRC     bool
 	Aggressive bool
 	Metric     bool
@@ -157,6 +167,7 @@ type Config struct {
 	HistoryInterval   int    // Interval in seconds for history files
 	LocationAccuracy  int    // 0=none, 1=rough, 2=exact
 }
+
 
 // App holds the application state
 type App struct {
@@ -269,14 +280,19 @@ func main() {
 	// Create context for graceful shutdown
 	app.ctx, app.cancel = context.WithCancel(context.Background())
 
-	// Handle signals
+	// Handle signals (matching C version dump1090.c signal handlers)
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		<-sigChan
-		log.Println("Shutting down...")
+		sig := <-sigChan
+		if sig == syscall.SIGINT {
+			modes.LogSigint()
+		} else {
+			modes.LogSigterm()
+		}
 		app.cancel()
 	}()
+
 
 	// Start network output services
 	if !config.DisableHTTP {
@@ -386,10 +402,20 @@ func parseFlags() *Config {
 	flag.Float64Var(&config.Longitude, "lon", 0, "Receiver longitude")
 	flag.Float64Var(&config.MaxRange, "max-range", 300, "Maximum range in nautical miles")
 
-	// Other settings
-	flag.BoolVar(&config.Quiet, "quiet", false, "Suppress output")
+	// Output control (matching C version dump1090-mutability)
+	flag.BoolVar(&config.Quiet, "quiet", false, "Suppress all output except errors")
+	flag.BoolVar(&config.Raw, "raw", false, "Output only raw messages (*HEXDATA;)")
+	flag.BoolVar(&config.OnlyAddr, "onlyaddr", false, "Output only ICAO addresses, one per line")
+	flag.BoolVar(&config.MLAT, "mlat", false, "Include MLAT timestamp in raw output (@TIMESTAMP*HEXDATA;)")
+	showOnly := flag.Uint("show-only", 0, "Only show messages from this ICAO address (hex)")
+
+	// Statistics output (matching C version)
+	flag.BoolVar(&config.Stats, "stats", false, "Enable periodic statistics display")
+	flag.IntVar(&config.StatsEvery, "stats-every", 0, "Display statistics every N seconds (implies --stats)")
+
+	// CRC error correction
 	flag.BoolVar(&config.FixCRC, "fix", false, "Fix single-bit CRC errors")
-	flag.BoolVar(&config.Aggressive, "aggressive", false, "Fix two-bit CRC errors")
+	flag.BoolVar(&config.Aggressive, "aggressive", false, "Fix two-bit CRC errors (more aggressive)")
 	flag.BoolVar(&config.Metric, "metric", false, "Use metric units")
 
 	// Interactive mode
@@ -412,8 +438,15 @@ func parseFlags() *Config {
 
 	config.Frequency = uint32(*freq)
 	config.SampleRate = uint32(*rate)
+	config.ShowOnly = uint32(*showOnly)
+
+	// If --stats-every is set, enable stats
+	if config.StatsEvery > 0 {
+		config.Stats = true
+	}
 
 	return config
+
 }
 
 func (app *App) processRTLSDR() error {
@@ -519,11 +552,20 @@ func (app *App) handleMessage(mm *modes.Message) {
 	// Broadcast to network clients
 	app.broadcastMessage(mm, aircraft)
 
-	// Log if not quiet
-	if !app.config.Quiet && mm.MsgType == 17 {
-		app.logMessage(mm, aircraft)
+	// Message display matching C version mode_s.c:useModesMessage()
+	// In non-interactive non-quiet mode, display messages on standard output
+	if !app.config.Interactive && !app.config.Quiet {
+		// Apply --show-only filter
+		if app.config.ShowOnly == 0 || mm.Addr == app.config.ShowOnly {
+			modes.DisplayModesMessage(mm, modes.DisplayConfig{
+				OnlyAddr: app.config.OnlyAddr,
+				Raw:      app.config.Raw,
+				MLAT:     app.config.MLAT,
+			}, os.Stdout)
+		}
 	}
 }
+
 
 func (app *App) broadcastMessage(mm *modes.Message, aircraft *modes.Aircraft) {
 	// Beast output
@@ -795,13 +837,11 @@ func (app *App) runTCPServer(name string, port int, clients *sync.Map) {
 		clientID := conn.RemoteAddr().String()
 		client := newNetworkClient(conn)
 		clients.Store(clientID, client)
-		log.Printf("%s client connected: %s", name, clientID)
 
 		go func(id string, nc *NetworkClient) {
 			defer func() {
 				clients.Delete(id)
 				nc.Close()
-				log.Printf("%s client disconnected: %s", name, id)
 			}()
 
 			// Keep connection alive until closed or context cancelled
@@ -884,6 +924,14 @@ func (app *App) runPeriodicTasks() {
 	defer ticker.Stop()
 
 	var tickCount int
+	var statsSeconds int // For --stats-every countdown
+
+	// Default stats-every to 60 seconds if --stats is set but --stats-every is not
+	statsEvery := app.config.StatsEvery
+	if app.config.Stats && statsEvery == 0 {
+		statsEvery = 60
+	}
+
 	for {
 		select {
 		case <-app.ctx.Done():
@@ -933,11 +981,29 @@ func (app *App) runPeriodicTasks() {
 					}
 				}
 
+				// Statistics display (matching C version --stats / --stats-every)
+				if app.config.Stats && statsEvery > 0 {
+					statsSeconds++
+					if statsSeconds >= statsEvery {
+						stats := app.statsCollector.GetAllTime()
+						nfixCRC := 0
+						if app.config.FixCRC {
+							nfixCRC = 1
+							if app.config.Aggressive {
+								nfixCRC = 2
+							}
+						}
+						modes.DisplayStats(&stats, os.Stdout, app.config.NetOnly, nfixCRC, app.config.MaxRange*1852)
+						statsSeconds = 0
+					}
+				}
+
 				tickCount = 0
 			}
 		}
 	}
 }
+
 
 // runRawInputServer listens for raw/AVR format messages on port 30001
 func (app *App) runRawInputServer() {
@@ -970,7 +1036,6 @@ func (app *App) runRawInputServer() {
 			}
 		}
 
-		log.Printf("Raw input client connected: %s", conn.RemoteAddr())
 		go app.handleRawInputConnection(conn)
 	}
 }
@@ -978,7 +1043,7 @@ func (app *App) runRawInputServer() {
 // handleRawInputConnection handles a single raw/AVR input connection
 func (app *App) handleRawInputConnection(conn net.Conn) {
 	defer conn.Close()
-	defer log.Printf("Raw input client disconnected: %s", conn.RemoteAddr())
+
 
 	reader := make([]byte, 4096)
 	var buffer []byte
@@ -1146,7 +1211,6 @@ func (app *App) runBeastInputServer() {
 			}
 		}
 
-		log.Printf("Beast input client connected: %s", conn.RemoteAddr())
 		go app.handleBeastInputConnection(conn)
 	}
 }
@@ -1154,7 +1218,7 @@ func (app *App) runBeastInputServer() {
 // handleBeastInputConnection handles a single Beast input connection
 func (app *App) handleBeastInputConnection(conn net.Conn) {
 	defer conn.Close()
-	defer log.Printf("Beast input client disconnected: %s", conn.RemoteAddr())
+
 
 	reader := make([]byte, 4096)
 	var buffer []byte

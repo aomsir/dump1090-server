@@ -8,10 +8,14 @@
 package modes
 
 import (
+	"fmt"
+	"io"
 	"math"
+	"os"
 	"sync"
 	"time"
 )
+
 
 const (
 	// STATS_HISTORY_SIZE is the number of 1-minute periods to keep
@@ -451,3 +455,186 @@ func addStats(src, dst *Stats) {
 		dst.RangeHistogram[i] += src.RangeHistogram[i]
 	}
 }
+
+// DisplayStats prints statistics to stdout matching C version stats.c:display_stats()
+func DisplayStats(st *Stats, w io.Writer, netOnly bool, nfixCRC int, maxRange float64) {
+	if w == nil {
+		w = os.Stdout
+	}
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w)
+
+	// Time range header
+	startTime := time.UnixMilli(int64(st.Start))
+	endTime := time.UnixMilli(int64(st.End))
+	fmt.Fprintf(w, "Statistics: %s - %s\n",
+		startTime.Format("Mon Jan 02 15:04:05 2006 MST"),
+		endTime.Format("Mon Jan 02 15:04:05 2006 MST"))
+
+	// Local receiver statistics
+	if !netOnly {
+		fmt.Fprintln(w, "Local receiver:")
+		fmt.Fprintf(w, "  %12d samples processed\n", st.SamplesProcessed)
+		fmt.Fprintf(w, "  %12d samples dropped\n", st.SamplesDropped)
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "  %12d Mode A/C messages received\n", st.DemodModeAC)
+		fmt.Fprintf(w, "  %12d Mode-S message preambles received\n", st.DemodPreambles)
+		fmt.Fprintf(w, "    %12d with bad message format or invalid CRC\n", st.DemodRejectedBad)
+		fmt.Fprintf(w, "    %12d with unrecognized ICAO address\n", st.DemodRejectedUnknownICAO)
+		fmt.Fprintf(w, "    %12d accepted with correct CRC\n", st.DemodAccepted[0])
+		for j := 1; j <= nfixCRC && j <= MODES_MAX_BITERRORS; j++ {
+			fmt.Fprintf(w, "    %12d accepted with %d-bit error repaired\n", st.DemodAccepted[j], j)
+		}
+		fmt.Fprintln(w)
+
+		// Noise power
+		if st.NoisePowerSum > 0 && st.NoisePowerCount > 0 {
+			noisePower := 10 * math.Log10(st.NoisePowerSum/float64(st.NoisePowerCount))
+			fmt.Fprintf(w, "  %5.1f dBFS noise power\n", noisePower)
+		} else {
+			fmt.Fprintln(w, "  ----- dBFS noise power")
+		}
+
+		// Signal power
+		if st.SignalPowerSum > 0 && st.SignalPowerCount > 0 {
+			signalPower := 10 * math.Log10(st.SignalPowerSum/float64(st.SignalPowerCount))
+			fmt.Fprintf(w, "  %5.1f dBFS mean signal power\n", signalPower)
+		} else {
+			fmt.Fprintln(w, "  ----- dBFS mean signal power")
+		}
+
+		// Peak signal power
+		if st.PeakSignalPower > 0 {
+			peakPower := 10 * math.Log10(st.PeakSignalPower)
+			fmt.Fprintf(w, "  %5.1f dBFS peak signal power\n", peakPower)
+		} else {
+			fmt.Fprintln(w, "  ----- dBFS peak signal power")
+		}
+
+		fmt.Fprintf(w, "  %5d messages with signal power above -3dBFS\n", st.StrongSignalCount)
+		fmt.Fprintln(w)
+	}
+
+	// Remote messages (network input)
+	fmt.Fprintln(w, "Messages from network clients:")
+	fmt.Fprintf(w, "  %8d Mode A/C messages received\n", st.RemoteReceivedModeAC)
+	fmt.Fprintf(w, "  %8d Mode S messages received\n", st.RemoteReceivedModes)
+	fmt.Fprintf(w, "    %8d with bad message format or invalid CRC\n", st.RemoteRejectedBad)
+	fmt.Fprintf(w, "    %8d with unrecognized ICAO address\n", st.RemoteRejectedUnknownICAO)
+	fmt.Fprintf(w, "    %8d accepted with correct CRC\n", st.RemoteAccepted[0])
+	for j := 1; j <= nfixCRC && j <= MODES_MAX_BITERRORS; j++ {
+		fmt.Fprintf(w, "    %8d accepted with %d-bit error repaired\n", st.RemoteAccepted[j], j)
+	}
+	fmt.Fprintln(w)
+
+	// Decoder statistics
+	fmt.Fprintln(w, "Decoder:")
+	fmt.Fprintf(w, "  %8d total usable messages\n", st.MessagesTotal)
+	fmt.Fprintln(w)
+
+	// CPR decoding statistics
+	fmt.Fprintf(w, "  %8d surface position messages received\n", st.CPRSurface)
+	fmt.Fprintf(w, "  %8d airborne position messages received\n", st.CPRAirborne)
+	fmt.Fprintf(w, "  %8d global CPR attempts with valid positions\n", st.CPRGlobalOK)
+	fmt.Fprintf(w, "  %8d global CPR attempts with bad data\n", st.CPRGlobalBad)
+	fmt.Fprintf(w, "    %8d global CPR attempts that failed the range check\n", st.CPRGlobalRangeChecks)
+	fmt.Fprintf(w, "    %8d global CPR attempts that failed the speed check\n", st.CPRGlobalSpeedChecks)
+	fmt.Fprintf(w, "  %8d global CPR attempts with insufficient data\n", st.CPRGlobalSkipped)
+	fmt.Fprintf(w, "  %8d local CPR attempts with valid positions\n", st.CPRLocalOK)
+	fmt.Fprintf(w, "    %8d aircraft-relative positions\n", st.CPRLocalAircraftRelative)
+	fmt.Fprintf(w, "    %8d receiver-relative positions\n", st.CPRLocalReceiverRelative)
+	fmt.Fprintf(w, "  %8d local CPR attempts that did not produce useful positions\n", st.CPRLocalSkipped)
+	fmt.Fprintf(w, "    %8d local CPR attempts that failed the range check\n", st.CPRLocalRangeChecks)
+	fmt.Fprintf(w, "    %8d local CPR attempts that failed the speed check\n", st.CPRLocalSpeedChecks)
+	fmt.Fprintf(w, "  %8d CPR messages that look like transponder failures filtered\n", st.CPRFiltered)
+	fmt.Fprintln(w)
+
+	fmt.Fprintf(w, "  %8d unique aircraft tracks\n", st.UniqueAircraft)
+	fmt.Fprintf(w, "  %8d aircraft tracks where only one message was seen\n", st.SingleMessageAircraft)
+	fmt.Fprintln(w)
+
+	// CPU load
+	durationMs := st.End - st.Start
+	if durationMs > 0 {
+		totalCPU := st.DemodCPU + st.ReaderCPU + st.BackgroundCPU
+		cpuPercent := 100.0 * float64(totalCPU) / float64(durationMs)
+		fmt.Fprintf(w, "CPU load: %5.1f%%\n", cpuPercent)
+		fmt.Fprintf(w, "  %5d ms for demodulation\n", st.DemodCPU)
+		fmt.Fprintf(w, "  %5d ms for reading from USB\n", st.ReaderCPU)
+		fmt.Fprintf(w, "  %5d ms for network input and background tasks\n", st.BackgroundCPU)
+	}
+	fmt.Fprintln(w)
+}
+
+// DisplayRangeHistogram prints the range histogram matching C version
+func DisplayRangeHistogram(st *Stats, w io.Writer, maxRange float64) {
+	if w == nil {
+		w = os.Stdout
+	}
+
+	fmt.Fprintln(w, "Range histogram:")
+	fmt.Fprintln(w)
+
+	// Find peak value
+	var peak uint32
+	for i := 0; i < RANGE_BUCKET_COUNT; i++ {
+		if st.RangeHistogram[i] > peak {
+			peak = st.RangeHistogram[i]
+		}
+	}
+
+	if peak == 0 {
+		fmt.Fprintln(w, "  (no position data)")
+		return
+	}
+
+	// Unicode bar characters (matching C version)
+	pixels := []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
+	npixels := len(pixels)
+
+	// Calculate heights (20 rows, npixels levels per row)
+	heights := make([]int, RANGE_BUCKET_COUNT)
+	for i := 0; i < RANGE_BUCKET_COUNT; i++ {
+		heights[i] = int(float64(st.RangeHistogram[i]) * 20.0 * float64(npixels) / float64(peak))
+		if st.RangeHistogram[i] > 0 && heights[i] == 0 {
+			heights[i] = 1
+		}
+	}
+
+	// Print histogram rows (top to bottom)
+	for j := 0; j < 20; j++ {
+		for i := 0; i < RANGE_BUCKET_COUNT; i++ {
+			pheight := heights[i] - ((19 - j) * npixels)
+			if pheight <= 0 {
+				fmt.Fprint(w, " ")
+			} else if pheight >= npixels {
+				fmt.Fprint(w, pixels[npixels-1])
+			} else {
+				fmt.Fprint(w, pixels[pheight])
+			}
+		}
+		fmt.Fprintln(w)
+	}
+
+	// Print x-axis line
+	for i := 0; i < RANGE_BUCKET_COUNT/4; i++ {
+		fmt.Fprint(w, "----")
+	}
+	fmt.Fprintln(w)
+
+	// Print tick marks
+	for i := 0; i < RANGE_BUCKET_COUNT/4; i++ {
+		fmt.Fprint(w, " '  ")
+	}
+	fmt.Fprintln(w)
+
+	// Print distance labels
+	for i := 0; i < RANGE_BUCKET_COUNT/4; i++ {
+		midpoint := int(math.Round((float64(i*4) + 1.5) * maxRange / float64(RANGE_BUCKET_COUNT) / 1000))
+		fmt.Fprintf(w, "%03d ", midpoint)
+
+	}
+	fmt.Fprintln(w, "km")
+}
+

@@ -1,4 +1,4 @@
-// dump1090go - ADS-B Mode S decoder for RTL-SDR devices
+// dump1090-server - ADS-B Mode S decoder for RTL-SDR devices
 //
 // A Go implementation of dump1090-mutability, providing:
 // - RTL-SDR device support
@@ -23,9 +23,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aomsir/dump1090-mutability-go/modes"
-	"github.com/aomsir/dump1090-mutability-go/rtlsdr"
-	"github.com/aomsir/dump1090-mutability-go/ui"
+	"github.com/aomsir/dump1090-server/modes"
+	"github.com/aomsir/dump1090-server/rtlsdr"
+	"github.com/aomsir/dump1090-server/ui"
 )
 
 // NetworkClient wraps a connection with heartbeat tracking
@@ -274,7 +274,7 @@ func main() {
 		app.tracker.SetReceiverLocation(config.Latitude, config.Longitude)
 	}
 	if config.MaxRange > 0 {
-		app.tracker.SetMaxRange(config.MaxRange)
+		app.tracker.SetMaxRange(config.MaxRange * 1852) // Convert NM to meters
 	}
 
 	// Create context for graceful shutdown

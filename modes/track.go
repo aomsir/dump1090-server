@@ -9,6 +9,7 @@
 package modes
 
 import (
+	"fmt"
 	"math"
 	"sync"
 	"time"
@@ -612,9 +613,15 @@ func (t *Tracker) updatePosition(a *Aircraft, mm *Message, now uint64) {
 		maxElapsed = 10000
 	}
 
-	var locationResult int
+	var locationResult int = -1 // Must be -1 to match C version; 0 means success
 	var newLat, newLon float64
 	var newNUC uint32
+
+	oddValid := dataValid(&a.CPROddValid)
+	evenValid := dataValid(&a.CPREvenValid)
+	elapsed := timeBetween(a.CPROddValid.Updated, a.CPREvenValid.Updated)
+	fmt.Printf("DEBUG updatePosition %06X: oddValid=%v evenValid=%v SourceOdd=%d SourceEven=%d TypeOdd=%d TypeEven=%d elapsed=%dms maxElapsed=%dms\n",
+		mm.Addr, oddValid, evenValid, a.CPROddValid.Source, a.CPREvenValid.Source, a.CPROddType, a.CPREvenType, elapsed, maxElapsed)
 
 	// Try global CPR if we have both even and odd frames
 	if dataValid(&a.CPROddValid) && dataValid(&a.CPREvenValid) &&
@@ -622,7 +629,9 @@ func (t *Tracker) updatePosition(a *Aircraft, mm *Message, now uint64) {
 		a.CPROddType == a.CPREvenType &&
 		timeBetween(a.CPROddValid.Updated, a.CPREvenValid.Updated) <= maxElapsed {
 
+		fmt.Printf("DEBUG updatePosition %06X: Trying global CPR\n", mm.Addr)
 		locationResult, newLat, newLon, newNUC = t.doGlobalCPR(a, mm, now, surface)
+		fmt.Printf("DEBUG updatePosition %06X: Global CPR result=%d lat=%f lon=%f\n", mm.Addr, locationResult, newLat, newLon)
 
 		if locationResult == -2 {
 			// Bad data, discard both frames
@@ -808,6 +817,9 @@ func (t *Tracker) doLocalCPR(a *Aircraft, mm *Message, now uint64, surface bool)
 		}
 		aircraftRelative = false // Using receiver position
 	} else {
+		// DEBUG: Log why we have no reference
+		// fmt.Printf("DEBUG doLocalCPR %06X: no reference! PositionValid=%v age=%d surface=%v receiverLatLon=%v\n",
+		//     mm.Addr, dataValid(&a.PositionValid), dataAge(&a.PositionValid, now), surface, t.receiverLatLon)
 		return -1, 0, 0, 0, false // No reference
 	}
 

@@ -1,3 +1,3 @@
-module github.com/aomsir/dump1090-mutability-go
+module github.com/aomsir/dump1090-server
 
 go 1.21

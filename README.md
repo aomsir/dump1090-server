@@ -1,114 +1,213 @@
-# dump1090-mutability-go
+# dump1090-server
 
-A Go implementation of dump1090-mutability, a Mode S ADS-B decoder for RTL-SDR devices.
+A pure Go implementation of dump1090, a Mode S ADS-B decoder for RTL-SDR devices.
 
-## Project Status
+## Features
 
-**Active Development** - Core decoding algorithms are complete and tested.
+- **Full Mode S decoding** - DF0-21 message types with CRC error correction
+- **CPR position decoding** - Global, relative, and surface position calculations
+- **Aircraft tracking** - State management with CPR frame pairing and timeout handling
+- **Multiple output formats** - Beast, AVR, SBS, FATSV, JSON
+- **Network I/O** - TCP servers for data output and input
+- **Interactive display** - Real-time TTY aircraft list
+- **JSON file output** - Compatible with dump1090-mutability web interface
+- **Docker support** - Minimal container image
 
-### ✅ Completed Modules
+## Installation
 
-#### 1. CRC Module (`internal/modes/crc.go`)
-- Mode S CRC-24 checksum calculation
-- 1-bit and 2-bit error detection and correction
-- Syndrome table generation for fast error diagnosis
-- **Performance**: 12.7 ns/op, zero allocations
-- **Test Coverage**: 100% golden test alignment with C version
+### From Source
 
-#### 2. CPR Module (`internal/modes/cpr.go`)
-- Global airborne position decoding (DecodeCPRAirborne)
-- Global surface position decoding (DecodeCPRSurface)
-- Relative position decoding (DecodeCPRRelative)
-- 59-level latitude zone lookup table (cprNLFunction)
-- **Performance**: 44.85 ns/op (airborne), 25.92 ns/op (relative), zero allocations
-- **Accuracy**: < 0.000001° float precision error
+```bash
+# Clone the repository
+git clone https://github.com/aomsir/dump1090-server.git
+cd dump1090-server
 
-#### 3. Core Types (`internal/modes/types.go`)
-- Message structure (112/56-bit messages)
-- Data source and address type enumerations
-- ADS-B v2 operational status structures
-- Target state & status (TSS) fields
+# Build (requires librtlsdr for hardware support)
+go build -o bin/dump1090-server ./cmd/dump1090-server
 
-### 🚧 In Progress
+# Or build without CGO (network-only mode)
+CGO_ENABLED=0 go build -o bin/dump1090-server ./cmd/dump1090-server
+```
 
-#### DSP Demodulator (`internal/dsp/demod.go`)
-- 2.4MHz I/Q sample processing
-- Preamble detection with phase alignment
-- Manchester bit decoding (5 phase correlation functions)
-- Signal quality assessment (SNR, power)
+### Dependencies
 
-### 📋 Planned Modules
+For RTL-SDR hardware support:
+- **macOS**: `brew install librtlsdr`
+- **Debian/Ubuntu**: `apt install librtlsdr-dev`
+- **Fedora**: `dnf install rtl-sdr-devel`
 
-1. **Mode S Decoder** (`internal/modes/decoder.go`)
-   - DF (Downlink Format) message parsing
-   - Extended squitter (DF17/DF18) decoding
-   - Surveillance reply (DF4/DF5/DF20/DF21) handling
+### Docker
 
-2. **Aircraft Tracker** (`internal/modes/track.go`)
-   - ICAO address deduplication
-   - Position and velocity state management
-   - CPR frame pairing and timeout handling
+```bash
+docker build -t dump1090-server .
+docker run -p 30002:30002 -p 30003:30003 -p 30005:30005 dump1090-server --net-only
+```
 
-3. **Network I/O** (`internal/netio/`)
-   - Beast binary protocol output
-   - JSON aircraft state export
-   - TCP client management
+## Usage
 
-4. **RTL-SDR Interface** (`internal/rtlsdr/`)
-   - Minimal cgo wrapper for librtlsdr
-   - Batch I/Q sample reading (16-32ms blocks)
-   - Zero-copy ring buffer design
+### Basic Usage
 
-5. **Main Programs**
-   - `cmd/dump1090go/`: Live decoder
-   - `cmd/view1090go/`: Console viewer
+```bash
+# Live decoding from RTL-SDR device
+./dump1090-server
+
+# Network-only mode (receive data from other sources)
+./dump1090-server --net-only
+
+# Read from recorded I/Q file
+./dump1090-server --infile samples.bin
+
+# Interactive mode with statistics
+./dump1090-server --interactive --stats
+```
+
+### Network Ports
+
+| Port  | Protocol | Description |
+|-------|----------|-------------|
+| 30001 | Raw In   | Receive AVR/Raw format messages |
+| 30002 | AVR Out  | Output in AVR text format |
+| 30003 | SBS Out  | Output in SBS (BaseStation) format |
+| 30004 | Beast In | Receive Beast binary format |
+| 30005 | Beast Out| Output in Beast binary format |
+| 8080  | HTTP     | JSON API endpoints |
+| 10001 | FATSV    | FlightAware TSV format |
+
+### HTTP Endpoints
+
+- `/data/aircraft.json` - Current aircraft list
+- `/data/receiver.json` - Receiver information
+- `/data/stats.json` - Decoding statistics
+- `/data/history_N.json` - Historical snapshots
+
+### Command Line Options
+
+#### Device Configuration
+```
+--device <N>          RTL-SDR device index (default: 0)
+--freq <Hz>           Center frequency (default: 1090000000)
+--gain <N>            Gain in 0.1dB units (-1 for auto)
+--ppm <N>             Frequency correction in PPM
+--enable-agc          Enable automatic gain control
+--bias-tee            Enable bias-T power
+```
+
+#### Input Sources
+```
+--infile <file>       Read samples from file
+--net-only            Network only mode (no RTL-SDR)
+```
+
+#### Network Output
+```
+--net-bind-address <ip>   Bind address for all servers
+--beast-out-port <N>      Beast output port (default: 30005)
+--avr-out-port <N>        AVR output port (default: 30002)
+--sbs-port <N>            SBS output port (default: 30003)
+--fatsv-port <N>          FATSV output port (default: 10001)
+--http-port <N>           HTTP server port (default: 8080)
+--no-beast-out            Disable Beast output
+--no-avr-out              Disable AVR output
+--no-sbs                  Disable SBS output
+```
+
+#### Network Input
+```
+--raw-in-port <N>     Raw/AVR input port (default: 30001)
+--beast-in-port <N>   Beast input port (default: 30004)
+```
+
+#### Receiver Location
+```
+--lat <degrees>       Receiver latitude
+--lon <degrees>       Receiver longitude
+--max-range <nm>      Maximum range in nautical miles
+```
+
+#### Output Control
+```
+--quiet               Suppress all output
+--raw                 Output raw messages only
+--onlyaddr            Output ICAO addresses only
+--mlat                Include MLAT timestamps
+--show-only <icao>    Only show specific ICAO address
+```
+
+#### Error Correction
+```
+--fix                 Enable 1-bit error correction
+--aggressive          Enable 2-bit error correction
+```
+
+#### Interactive Mode
+```
+--interactive             Enable interactive TTY display
+--interactive-rows <N>    Number of rows (default: 22)
+--interactive-ttl <N>     Display timeout in seconds (default: 60)
+--metric                  Use metric units
+```
+
+#### JSON Output
+```
+--write-json <dir>        JSON output directory
+--write-json-every <s>    Update interval in seconds (default: 1.0)
+--history-size <N>        Number of history files (default: 120)
+--history-interval <N>    History snapshot interval (default: 30)
+```
 
 ## Architecture
 
 ```
 ┌─────────────────┐
-│   RTL-SDR       │  (cgo, minimal wrapper)
+│   RTL-SDR       │  (cgo wrapper, optional)
 │   Hardware      │
 └────────┬────────┘
          │ I/Q samples ([]byte, 16-32ms chunks)
          ▼
 ┌─────────────────┐
-│ DSP Demodulator │  internal/dsp
-│  - Magnitude    │  (batch processing, pre-allocated buffers)
-│  - Preamble     │
+│ DSP Demodulator │  modes/demod.go
+│  - Magnitude    │  (2.4MHz Manchester decoding)
+│  - Preamble     │  (5-phase correlation)
 │  - Manchester   │
 └────────┬────────┘
-         │ Raw messages ([]Message)
+         │ Raw messages
          ▼
 ┌─────────────────┐
-│ Mode S Decoder  │  internal/modes
-│  - CRC check    │  (table-driven, zero-alloc hot path)
-│  - DF parsing   │
+│ Mode S Decoder  │  modes/decoder.go
+│  - CRC check    │  (table-driven, zero-alloc)
+│  - DF parsing   │  (DF0-21 support)
 │  - CPR decode   │
 └────────┬────────┘
          │ Decoded messages
          ▼
 ┌─────────────────┐
-│ Aircraft Track  │  internal/modes/track.go
-│  - State merge  │  (RWMutex, timeout cleanup)
-│  - Position est │
+│ Aircraft Track  │  modes/track.go
+│  - State merge  │  (RWMutex, thread-safe)
+│  - Position     │  (CPR frame pairing)
+│  - Timeout      │  (5min TTL)
 └────────┬────────┘
          │ Aircraft states
          ▼
 ┌─────────────────┐
-│   Network I/O   │  internal/netio
-│  - Beast TCP    │  (goroutine per client, backpressure)
+│   Network I/O   │  modes/output.go
+│  - Beast TCP    │  (binary protocol)
+│  - AVR TCP      │  (text format)
+│  - SBS TCP      │  (BaseStation format)
+│  - FATSV TCP    │  (FlightAware TSV)
 │  - JSON files   │  (periodic dump)
+│  - HTTP API     │  (REST endpoints)
 └─────────────────┘
 ```
 
-## Build Requirements
+## Performance
 
-- **Go**: 1.21 or later
-- **librtlsdr**: For RTL-SDR hardware access
-  - macOS: `brew install librtlsdr`
-  - Debian/Ubuntu: `apt install librtlsdr-dev`
-- **GCC**: For cgo compilation
+All critical path functions are optimized for minimal latency:
+
+| Operation | Performance | Allocations |
+|-----------|-------------|-------------|
+| CRC calculation | 12.7 ns/op | 0 |
+| CPR airborne decode | 44.85 ns/op | 0 |
+| CPR relative decode | 25.92 ns/op | 0 |
 
 ## Testing
 
@@ -116,83 +215,34 @@ A Go implementation of dump1090-mutability, a Mode S ADS-B decoder for RTL-SDR d
 # Run all tests
 go test ./...
 
-# Run tests with coverage
-go test -cover ./internal/modes/
+# Run with coverage
+go test -cover ./modes/
 
 # Run benchmarks
-go test -bench=. -benchmem ./internal/modes/
-
-# Cross-validate with C version
-cd dump1090-libs
-make cprtests && ./cprtests
+go test -bench=. -benchmem ./modes/
 ```
 
-## Performance Targets
+## Compatibility
 
-All critical path functions must meet these benchmarks:
-
-- **CRC calculation**: < 15 ns/op
-- **CPR decoding**: < 50 ns/op
-- **Message demodulation**: < 200 ns/op (target)
-- **Memory**: Zero allocations in hot path
-
-## Design Principles
-
-1. **Compatibility First**: Bit-exact output alignment with dump1090-mutability
-2. **Batch Processing**: Minimize cgo overhead with 16-32ms block sizes
-3. **Zero-Copy**: Pre-allocated buffers, sync.Pool for magnitude arrays
-4. **Testability**: Golden tests using C version outputs as reference
-5. **No Magic**: Direct C-to-Go translation, maintain algorithm clarity
-
-## Testing Strategy
-
-### Unit Tests
-- CRC: Known messages with expected checksums
-- CPR: Test vectors from cprtests.c (59 cases)
-- Error correction: Single/double bit flips
-
-### Integration Tests (Planned)
-- I/Q replay: Recorded samples → full decode pipeline
-- Statistical validation: Frame count, DF distribution, CRC fail rate
-
-### Cross-validation
-All numeric outputs are validated against the C implementation within tolerance:
+This implementation maintains bit-exact compatibility with dump1090-mutability:
 - Integer fields: Exact match
-- Float fields: < 0.000001 error
-
-## Contributing
-
-This project follows the original dump1090-mutability's design closely. When implementing new modules:
-
-1. Read the corresponding C file first
-2. Translate algorithm directly (maintain variable names where possible)
-3. Add unit tests with C version test data
-4. Run benchmarks to ensure performance
-5. Commit with clear description of what was implemented
+- Float fields: < 0.000001 error tolerance
+- Output formats: Protocol-compatible with existing tools
 
 ## License
 
 GPL v2+ (matching dump1090-mutability)
 
-Original work:
+**Original work:**
 - Copyright (c) 2014-2016 Oliver Jowett <oliver@mutability.co.uk>
 - Copyright (C) 2012 Salvatore Sanfilippo <antirez@gmail.com>
 
-Go implementation:
+**Go implementation:**
 - Copyright (c) 2025
 
 ## References
 
-- [dump1090-mutability](https://github.com/mutability/dump1090)
+- [dump1090-mutability](https://github.com/mutability/dump1090) - Original C implementation
 - [ICAO Annex 10, Volume IV](https://www.icao.int/safety/acp/acpwgf/acp-wg-c-15/wp07_att01.pdf) - Mode S specification
-- [1090-WP29-07](http://www.anteni.net/adsb/Doc/1090-WP29-07-Draft_CPR101.pdf) - CPR decoding
-
-## Next Steps
-
-1. Complete DSP demodulator (demod_2400.c → demod.go)
-2. Implement Mode S message decoder (mode_s.c → decoder.go)
-3. Add aircraft tracking (track.c → track.go)
-4. Implement network output (net_io.c → beast.go/json.go)
-5. Create minimal RTL-SDR cgo wrapper
-6. Write main programs and CLI
-7. End-to-end testing with recorded I/Q data
+- [1090-WP29-07](http://www.anteni.net/adsb/Doc/1090-WP29-07-Draft_CPR101.pdf) - CPR decoding specification
+- [SBS BaseStation Format](http://woodair.net/sbs/article/barebones42_socket_data.htm) - SBS protocol documentation

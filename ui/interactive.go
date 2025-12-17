@@ -15,7 +15,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/aomsir/dump1090-mutability-go/modes"
+	"github.com/aomsir/dump1090-server/modes"
 )
 
 // Interactive mode constants (matching C version)

@@ -6,7 +6,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/aomsir/dump1090-mutability-go/modes"
+	"github.com/aomsir/dump1090-server/modes"
 )
 
 func TestConvertAltitude(t *testing.T) {

@@ -26,14 +26,9 @@ func (svc *NetworkService) Add(id string, nc *NetworkClient) {
 	svc.clients.Store(id, nc)
 }
 
-// Remove closes and unregisters a client connection.
-func (svc *NetworkService) Remove(id string) {
-	if v, ok := svc.clients.LoadAndDelete(id); ok {
-		v.(*NetworkClient).Close()
-	}
-}
-
 // CloseAll closes and unregisters every client. Call on server shutdown.
+// Safe to call concurrently with Broadcast and sendHeartbeats because
+// NetworkClient.Close (sync.Once) and sync.Map.Delete are both idempotent.
 func (svc *NetworkService) CloseAll() {
 	svc.clients.Range(func(key, value any) bool {
 		value.(*NetworkClient).Close()
@@ -64,7 +59,8 @@ func (svc *NetworkService) Broadcast(data []byte) {
 }
 
 // sendHeartbeats sends a heartbeat to clients that have been idle
-// for longer than the given interval. A zero interval disables heartbeats.
+// for longer than the given interval. A zero or negative interval
+// disables heartbeats (no writes, no removals).
 func (svc *NetworkService) sendHeartbeats(heartbeat []byte, interval time.Duration) {
 	if interval <= 0 {
 		return

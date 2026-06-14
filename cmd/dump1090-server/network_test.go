@@ -184,3 +184,32 @@ func TestCloseAllRemovesAllClients(t *testing.T) {
 		t.Fatalf("expected 0 clients after CloseAll, got %d", got)
 	}
 }
+
+func TestHeartbeatZeroIntervalDoesNotWriteOrRemove(t *testing.T) {
+	// sendHeartbeats with interval <= 0 must be a no-op: no writes,
+	// no removals, even when clients are idle.
+	svc := newNetworkService("test")
+
+	server, client := net.Pipe()
+	defer client.Close()
+
+	nc := newNetworkClient(server)
+	svc.Add("idle-client", nc)
+
+	// Call with zero interval.
+	svc.sendHeartbeats([]byte("hb\n"), 0)
+	// Call with negative interval.
+	svc.sendHeartbeats([]byte("hb\n"), -5*time.Second)
+
+	if got := svc.ClientCount(); got != 1 {
+		t.Fatalf("expected 1 client after zero/negative heartbeat, got %d", got)
+	}
+
+	// Verify nothing was written to the client side.
+	client.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
+	buf := make([]byte, 64)
+	_, err := client.Read(buf)
+	if err == nil {
+		t.Fatal("expected read timeout (no data written), got data")
+	}
+}

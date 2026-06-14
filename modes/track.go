@@ -325,7 +325,10 @@ func (t *Tracker) matchModeACWithModeS(modeACAircraft *Aircraft) {
 		// Mode A matching: check squawk codes
 		if dataValid(&modeACAircraft.SquawkValid) && dataValid(&modeS.SquawkValid) {
 			if modeACAircraft.Squawk == modeS.Squawk {
-				// Found Mode A match
+				// Overwrite (not increment) ModeACount with the synthetic record's
+				// message count. This matches upstream dump1090-mutability semantics:
+				// the count reflects how many Mode A/C messages have been received for
+				// this particular Mode A code, not a cumulative total.
 				modeS.ModeACount = modeACAircraft.Messages
 				modeS.ModeACFlags |= MODEAC_MSG_MODEA_HIT
 				modeACAircraft.ModeACFlags |= MODEAC_MSG_MODEA_HIT
@@ -344,7 +347,7 @@ func (t *Tracker) matchModeACWithModeS(modeACAircraft *Aircraft) {
 			if modeACAircraft.AltitudeModeC == modeS.AltitudeModeC ||
 				modeACAircraft.AltitudeModeC == modeS.AltitudeModeC+1 ||
 				modeACAircraft.AltitudeModeC+1 == modeS.AltitudeModeC {
-				// Found Mode C match
+				// Overwrite ModeCCount (same upstream semantics as ModeACount above).
 				modeS.ModeCCount = modeACAircraft.Messages
 				modeS.ModeACFlags |= MODEAC_MSG_MODEC_HIT
 				modeACAircraft.ModeACFlags |= MODEAC_MSG_MODEC_HIT

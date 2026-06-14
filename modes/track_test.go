@@ -621,8 +621,8 @@ func TestModeACStaleFlagClearing(t *testing.T) {
 	}
 
 	// Now change the Mode A/C synthetic aircraft's squawk so it no longer
-	// matches Mode S aircraft. This simulates the Mode A/C record changing
-	// (e.g., different aircraft replying on the same Mode A code).
+	// matches Mode S aircraft. Direct mutation isolates PeriodicUpdate rematch
+	// behavior without going through the full UpdateFromModeAC path.
 	tracker.mu.Lock()
 	for _, a := range tracker.aircraft {
 		if a.ModeACFlags&MODEAC_MSG_FLAG != 0 {

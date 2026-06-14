@@ -289,7 +289,7 @@ func (d *Demodulator) Demodulate2400(mag *MagBuf) {
 		msgLen := ModesMessageLenByType(int(bestMsg[0] >> 3))
 
 		// Decode the message
-		mm, result := DecodeModesMessage(bestMsg[:msgLen/8])
+		mm, result := DecodeModesMessageWithConfig(bestMsg[:msgLen/8], DecodeConfig{ICAOFilter: d.icaoFilter})
 		if result < 0 {
 			if result == -1 {
 				d.stats.rejectedUnknownICAO++

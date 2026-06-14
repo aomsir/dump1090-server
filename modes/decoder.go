@@ -139,7 +139,7 @@ func setIMF(mm *Message) {
 //	-1: message might be valid, but we couldn't validate CRC against known ICAO
 //	-2: bad message or unrepairable CRC error
 func DecodeModesMessage(msg []byte) (*Message, int) {
-	return DecodeModesMessageWithFilter(msg, nil)
+	return DecodeModesMessageWithConfig(msg, DecodeConfig{})
 }
 
 // DecodeModesMessageWithFilter decodes with optional ICAO filter for validation.

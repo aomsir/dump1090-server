@@ -189,6 +189,38 @@ func TestDecodeAC12Field(t *testing.T) {
 	}
 }
 
+func TestDecodeRequiresKnownICAOForAPAddressedMessages(t *testing.T) {
+	ModesChecksumInit(1)
+	filter := NewICAOFilter()
+
+	// DF4-like message: DF4, all-zero payload, AP=0x123456
+	// CRC syndrome = 0x925209 — not in the empty filter, must be rejected.
+	msg := []byte{0x20, 0x00, 0x00, 0x00, 0x12, 0x34, 0x56}
+
+	_, result := DecodeModesMessageWithConfig(msg, DecodeConfig{ICAOFilter: filter})
+	if result != -1 {
+		t.Fatalf("got result %d, want unknown ICAO -1", result)
+	}
+}
+
+func TestDecodeCommBUsesKnownICAOFilter(t *testing.T) {
+	ModesChecksumInit(1)
+	filter := NewICAOFilter()
+	filter.Add(0xABCDEF)
+
+	// DF20 message where AP encodes ICAO=0xABCDEF
+	// AP = CRC(data) XOR ICAO, so the syndrome yields 0xABCDEF.
+	msg := []byte{0xA0, 0x00, 0x00, 0x00, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x2C, 0xD9, 0xEB}
+
+	mm, result := DecodeModesMessageWithConfig(msg, DecodeConfig{ICAOFilter: filter})
+	if result < 0 {
+		t.Fatalf("expected accepted Comm-B with known ICAO, got %d", result)
+	}
+	if mm.MsgType != 20 {
+		t.Fatalf("got DF%d want DF20", mm.MsgType)
+	}
+}
+
 func BenchmarkDecodeModesMessage(b *testing.B) {
 	ModesChecksumInit(2)
 

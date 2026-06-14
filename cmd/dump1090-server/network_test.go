@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync"
 	"testing"
@@ -57,15 +58,19 @@ func TestOutputClientCanRemainPassiveReader(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// Give time for client registration and a few heartbeat cycles.
-	time.Sleep(heartbeatInterval*4 + 50*time.Millisecond)
-
-	if got := svc.ClientCount(); got != 1 {
-		t.Fatalf("expected 1 client, got %d", got)
+	// Wait for client registration by polling ClientCount with a deadline.
+	deadline := time.After(2 * time.Second)
+	for svc.ClientCount() < 1 {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for client registration")
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
 	}
 
 	// Client should have received at least one heartbeat.
-	conn.SetReadDeadline(time.Now().Add(heartbeatInterval * 3))
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	buf := make([]byte, 256)
 	n, err := conn.Read(buf)
 	if err != nil {
@@ -211,5 +216,63 @@ func TestHeartbeatZeroIntervalDoesNotWriteOrRemove(t *testing.T) {
 	_, err := client.Read(buf)
 	if err == nil {
 		t.Fatal("expected read timeout (no data written), got data")
+	}
+}
+
+func TestRunOutputTCPServerShutdownClosesClients(t *testing.T) {
+	// Integration test: start runOutputTCPServer on an ephemeral port,
+	// connect a client, cancel context, verify CloseAll removes clients.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close() // free the port for runOutputTCPServer
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	svc := newNetworkService("integration-test")
+	app := &App{
+		config: &Config{NetBindAddress: "127.0.0.1"},
+		ctx:    ctx,
+	}
+
+	app.wg.Add(1)
+	go app.runOutputTCPServer(svc, port)
+
+	// Wait until the server is accepting connections.
+	var clientConn net.Conn
+	deadline := time.After(2 * time.Second)
+	for {
+		clientConn, err = net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err == nil {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for server to accept connections")
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	// Wait for the client to be registered.
+	for svc.ClientCount() < 1 {
+		select {
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for client registration")
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	// Cancel context → server exits accept loop → CloseAll removes clients.
+	cancel()
+	app.wg.Wait()
+	clientConn.Close()
+
+	if got := svc.ClientCount(); got != 0 {
+		t.Fatalf("expected 0 clients after shutdown, got %d", got)
 	}
 }

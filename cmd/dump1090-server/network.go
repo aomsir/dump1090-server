@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -14,11 +15,19 @@ import (
 type NetworkService struct {
 	name    string
 	clients sync.Map
+	nextID  atomic.Uint64
 }
 
 // newNetworkService creates a new NetworkService.
 func newNetworkService(name string) *NetworkService {
 	return &NetworkService{name: name}
+}
+
+// newClientID returns a collision-proof client ID combining the remote
+// address with a monotonic counter (e.g. "127.0.0.1:54321#1").
+func (svc *NetworkService) newClientID(remoteAddr string) string {
+	id := svc.nextID.Add(1)
+	return fmt.Sprintf("%s#%d", remoteAddr, id)
 }
 
 // Add registers a client connection.
@@ -122,7 +131,7 @@ func (app *App) runOutputTCPServer(svc *NetworkService, port int) {
 			}
 		}
 
-		clientID := conn.RemoteAddr().String()
+		clientID := svc.newClientID(conn.RemoteAddr().String())
 		client := newNetworkClient(conn)
 		svc.Add(clientID, client)
 	}

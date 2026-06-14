@@ -92,6 +92,16 @@ func TestParsePortsSupportsListsAndZeroDisable(t *testing.T) {
 			input:   "",
 			wantErr: true,
 		},
+		{
+			name:    "duplicate ports",
+			input:   "30004,30004",
+			wantErr: true,
+		},
+		{
+			name:    "duplicate ports with whitespace",
+			input:   "30004 30004",
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -304,5 +314,76 @@ func TestDeadBeastInPortFieldRemoved(t *testing.T) {
 	// BeastInPort (single int) should no longer exist; BeastInPorts is the source of truth.
 	if config.BeastInPorts == nil {
 		t.Error("BeastInPorts should be initialized in DefaultConfig")
+	}
+}
+
+func TestBeastInPortFlagRejectsInvalid(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "non-numeric", value: "abc"},
+		{name: "out of range", value: "70000"},
+		{name: "negative", value: "-1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			origArgs := os.Args
+			origCommandLine := flag.CommandLine
+			defer func() {
+				os.Args = origArgs
+				flag.CommandLine = origCommandLine
+			}()
+
+			flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+			os.Args = []string{"test", "--net", "--beast-in-port", tt.value}
+			_, err := ParseFlagsFromSet(flag.CommandLine, os.Args[1:])
+			if err == nil {
+				t.Fatalf("ParseFlagsFromSet with --beast-in-port %q should return error", tt.value)
+			}
+		})
+	}
+}
+
+func TestBeastInPortFlagRejectsDuplicate(t *testing.T) {
+	origArgs := os.Args
+	origCommandLine := flag.CommandLine
+	defer func() {
+		os.Args = origArgs
+		flag.CommandLine = origCommandLine
+	}()
+
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	os.Args = []string{"test", "--net", "--beast-in-port", "30004,30004"}
+	_, err := ParseFlagsFromSet(flag.CommandLine, os.Args[1:])
+	if err == nil {
+		t.Fatal("ParseFlagsFromSet with duplicate ports should return error")
+	}
+}
+
+func TestPortListString(t *testing.T) {
+	tests := []struct {
+		pl   PortList
+		want string
+	}{
+		{PortList{30004, 30104}, "30004,30104"},
+		{PortList{30004}, "30004"},
+		{PortList{}, ""},
+	}
+	for _, tt := range tests {
+		if got := tt.pl.String(); got != tt.want {
+			t.Errorf("PortList(%v).String() = %q, want %q", []int(tt.pl), got, tt.want)
+		}
+	}
+}
+
+func TestPortListValueSetError(t *testing.T) {
+	var pl PortList
+	v := portListValue{target: &pl}
+	if err := v.Set("abc"); err == nil {
+		t.Error("portListValue.Set(\"abc\") should return error")
+	}
+	if err := v.Set("30004,30004"); err == nil {
+		t.Error("portListValue.Set with duplicates should return error")
 	}
 }

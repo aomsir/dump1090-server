@@ -29,8 +29,8 @@ func ParsePortList(s string) (PortList, error) {
 	}
 
 	ports := make(PortList, 0, len(tokens))
+	seen := make(map[int]bool, len(tokens))
 	for _, tok := range tokens {
-		tok = strings.TrimSpace(tok)
 		if tok == "" {
 			continue
 		}
@@ -41,6 +41,10 @@ func ParsePortList(s string) (PortList, error) {
 		if n < 1 || n > 65535 {
 			return nil, fmt.Errorf("port %d out of range 1-65535", n)
 		}
+		if seen[n] {
+			return nil, fmt.Errorf("duplicate port %d", n)
+		}
+		seen[n] = true
 		ports = append(ports, n)
 	}
 	if len(ports) == 0 {

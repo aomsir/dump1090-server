@@ -114,7 +114,9 @@ func (app *App) runOutputTCPServer(svc *NetworkService, port int) {
 
 	log.Printf("%s server listening on %s", svc.name, addr)
 
+	app.wg.Add(1)
 	go func() {
+		defer app.wg.Done()
 		<-app.ctx.Done()
 		listener.Close()
 	}()

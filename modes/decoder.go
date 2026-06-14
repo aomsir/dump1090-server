@@ -93,7 +93,6 @@ func getbits(msg []byte, firstbit, lastbit int) uint32 {
 		}
 		return result
 	}
-	return 0
 }
 
 // decodeAC12Field decodes the 12-bit AC altitude field (in DF 17 and others).

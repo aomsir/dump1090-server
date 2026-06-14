@@ -74,6 +74,12 @@ func (d *Demodulator) GetICAOFilter() *ICAOFilter {
 	return d.icaoFilter
 }
 
+// timestampFromSampleOffset converts a 12MHz sample tick offset to a time.Duration
+// and adds it to the base time. At 12MHz, 12 ticks = 1 microsecond.
+func timestampFromSampleOffset(base time.Time, ticks uint64) time.Time {
+	return base.Add(time.Duration(ticks*1000/12) * time.Nanosecond)
+}
+
 // Phase correlation functions for Manchester decoding.
 // These correlate a 1-0 pair of symbols (i.e. manchester encoded 1 bit)
 // starting at the given sample, and assuming that the symbol starts at
@@ -311,8 +317,9 @@ func (d *Demodulator) Demodulate2400(mag *MagBuf) {
 		}
 
 		// Set timestamp
-		mm.Timestamp = mag.SampleTimestamp + uint64(j*5+bestPhase)
-		mm.SysTimestamp = mag.SysTimestamp.Add(time.Duration(j*5+bestPhase) * 83333) // ~83.333ns per unit
+		offsetTicks := uint64(j*5 + bestPhase)
+		mm.Timestamp = mag.SampleTimestamp + offsetTicks
+		mm.SysTimestamp = timestampFromSampleOffset(mag.SysTimestamp, offsetTicks)
 
 		// Measure signal power
 		signalLen := msgLen * 12 / 5
@@ -911,8 +918,9 @@ func (d *Demodulator) Demodulate2400AC(mag *MagBuf) {
 			continue
 		}
 
-		// Set timestamp
-		mm.Timestamp = mag.SampleTimestamp + uint64(f1Clock/5) // 60MHz -> 12MHz
+		// Set timestamp (f1Clock is in 1/25 sample units; convert to 12MHz ticks: /5)
+		mm.Timestamp = mag.SampleTimestamp + uint64(f1Clock/5)
+		mm.SysTimestamp = timestampFromSampleOffset(mag.SysTimestamp, uint64(f1Clock/5))
 
 		// Pass to handler
 		if d.messageHandler != nil {

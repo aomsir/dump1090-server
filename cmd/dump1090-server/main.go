@@ -91,7 +91,11 @@ const (
 	// Preamble and message sizes (in samples at 2.4MHz)
 	preambleSamples = 16  // 8us * 2 samples/us
 	longMsgSamples  = 240 // 112 bits * 12/5 samples/bit
-	overlapSamples  = preambleSamples + longMsgSamples
+	// overlapSamples must cover the full preamble + longest message so the
+	// demodulator can decode messages that straddle buffer boundaries.
+	// The demod needs 19 preamble samples + 112*12/5 = 268 data samples = 287.
+	// Add margin for phase offset.
+	overlapSamples = 300
 )
 
 // Config holds the application configuration
@@ -506,17 +510,19 @@ func (app *App) processRTLSDR() error {
 }
 
 func (app *App) handleSamples(iq []byte) {
-	// Convert IQ to magnitude
-	rtlsdr.ConvertUC8NoDC(iq, app.magBuf.Data[overlapSamples:])
+	// Convert IQ to magnitude, capturing total power
+	totalPower := rtlsdr.ConvertUC8NoDC(iq, app.magBuf.Data[overlapSamples:])
+	app.magBuf.TotalPower = totalPower
 
-	// Copy overlap from previous buffer
-	copy(app.magBuf.Data[:overlapSamples], app.magBuf.Data[app.magBuf.Length:])
-
-	// Demodulate Mode S
+	// Demodulate Mode S (overlap region Data[:overlapSamples] still holds
+	// the tail of the previous buffer from the last iteration)
 	app.demod.Demodulate2400(app.magBuf)
 
 	// Demodulate Mode A/C (older transponders)
 	app.demod.Demodulate2400AC(app.magBuf)
+
+	// Save tail of current data as overlap for the next buffer
+	copy(app.magBuf.Data[:overlapSamples], app.magBuf.Data[app.magBuf.Length:])
 }
 
 func (app *App) handleMessage(mm *modes.Message) {
@@ -670,18 +676,19 @@ func (app *App) processFile(filename string) error {
 			return fmt.Errorf("read error: %w", err)
 		}
 
-		// Convert IQ to magnitude
-		rtlsdr.ConvertUC8NoDC(iqBuf[:n], app.magBuf.Data[overlapSamples:])
+		// Convert IQ to magnitude, capturing total power
+		totalPower := rtlsdr.ConvertUC8NoDC(iqBuf[:n], app.magBuf.Data[overlapSamples:])
 		app.magBuf.Length = uint32(n / 2)
+		app.magBuf.TotalPower = totalPower
 
-		// Copy overlap from previous buffer
-		copy(app.magBuf.Data[:overlapSamples], app.magBuf.Data[app.magBuf.Length:])
-
-		// Demodulate Mode S
+		// Demodulate Mode S (overlap region still holds previous tail)
 		app.demod.Demodulate2400(app.magBuf)
 
 		// Demodulate Mode A/C (older transponders)
 		app.demod.Demodulate2400AC(app.magBuf)
+
+		// Save tail of current data as overlap for the next buffer
+		copy(app.magBuf.Data[:overlapSamples], app.magBuf.Data[app.magBuf.Length:])
 	}
 
 	return nil

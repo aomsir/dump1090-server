@@ -58,6 +58,14 @@ func (pl PortList) String() string {
 	return strings.Join(parts, ",")
 }
 
+// NetworkServicesEnabled reports whether the config requests any network
+// listeners to start. This is the runtime gate: without --net or --net-only,
+// no HTTP/raw/beast/SBS/FATSV listeners are started regardless of individual
+// disable flags.
+func NetworkServicesEnabled(c *Config) bool {
+	return c.EnableNet
+}
+
 // DefaultConfig returns a Config with upstream dump1090-mutability defaults:
 // networking disabled, Beast input ports 30004+30104.
 func DefaultConfig() *Config {

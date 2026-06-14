@@ -299,36 +299,47 @@ func main() {
 	}()
 
 
-	// Start network output services
-	if !config.DisableHTTP {
-		app.wg.Add(1)
-		go app.runHTTPServer()
-	}
-	if !config.DisableBeast {
-		app.wg.Add(1)
-		go app.runBeastOutputServer()
-	}
-	if !config.DisableAVR {
-		app.wg.Add(1)
-		go app.runAVROutputServer()
-	}
-	if !config.DisableSBS {
-		app.wg.Add(1)
-		go app.runSBSServer()
-	}
-	if !config.DisableFATSV {
-		app.wg.Add(1)
-		go app.runFATSVServer()
-	}
+	// Start network services (only when --net or --net-only is set)
+	if config.EnableNet {
+		// Start network output services
+		if !config.DisableHTTP {
+			app.wg.Add(1)
+			go app.runHTTPServer()
+		}
+		if !config.DisableBeast {
+			app.wg.Add(1)
+			go app.runBeastOutputServer()
+		}
+		if !config.DisableAVR {
+			app.wg.Add(1)
+			go app.runAVROutputServer()
+		}
+		if !config.DisableSBS {
+			app.wg.Add(1)
+			go app.runSBSServer()
+		}
+		if !config.DisableFATSV {
+			app.wg.Add(1)
+			go app.runFATSVServer()
+		}
 
-	// Start network input services
-	if !config.DisableRawIn {
-		app.wg.Add(1)
-		go app.runRawInputServer()
-	}
-	if !config.DisableBeastIn {
-		app.wg.Add(1)
-		go app.runBeastInputServer()
+		// Start network input services
+		if !config.DisableRawIn {
+			app.wg.Add(1)
+			go app.runRawInputServer()
+		}
+		if !config.DisableBeastIn {
+			// Start a Beast input listener for each port in BeastInPorts.
+			beastPorts := config.BeastInPorts
+			if len(beastPorts) == 0 {
+				// Fallback to single BeastInPort if BeastInPorts is empty.
+				beastPorts = PortList{config.BeastInPort}
+			}
+			for _, port := range beastPorts {
+				app.wg.Add(1)
+				go app.runBeastInputServerOnPort(port)
+			}
+		}
 	}
 
 	// Start periodic tasks
@@ -1112,11 +1123,17 @@ func (app *App) decodeRawMessage(line string) *modes.Message {
 	return mm
 }
 
-// runBeastInputServer listens for Beast format messages on port 30004
+// runBeastInputServer listens for Beast format messages on the default port.
+// Retained for backward compatibility; prefer runBeastInputServerOnPort.
 func (app *App) runBeastInputServer() {
+	app.runBeastInputServerOnPort(app.config.BeastInPort)
+}
+
+// runBeastInputServerOnPort listens for Beast format messages on the given port.
+func (app *App) runBeastInputServerOnPort(port int) {
 	defer app.wg.Done()
 
-	addr := fmt.Sprintf("%s:%d", app.config.NetBindAddress, app.config.BeastInPort)
+	addr := fmt.Sprintf("%s:%d", app.config.NetBindAddress, port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Printf("Beast input server error: %v", err)

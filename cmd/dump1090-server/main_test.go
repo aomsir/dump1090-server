@@ -112,10 +112,38 @@ func TestDefaultNetworkingDisabledUntilNetFlag(t *testing.T) {
 	if config.EnableNet {
 		t.Error("EnableNet should be false by default")
 	}
-	// Without EnableNet, all network disable flags should effectively block listeners.
-	// Verify the flags are not forcing network on.
 	if config.NetOnly {
 		t.Error("NetOnly should be false by default")
+	}
+	// The runtime decision: default config should not start any network listeners.
+	if NetworkServicesEnabled(config) {
+		t.Error("default config should not enable network services")
+	}
+}
+
+func TestNetFlagEnablesNetworking(t *testing.T) {
+	origArgs := os.Args
+	origCommandLine := flag.CommandLine
+	defer func() {
+		os.Args = origArgs
+		flag.CommandLine = origCommandLine
+	}()
+
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	os.Args = []string{"test", "--net"}
+	config, err := ParseFlagsFromSet(flag.CommandLine, os.Args[1:])
+	if err != nil {
+		t.Fatalf("ParseFlagsFromSet returned error: %v", err)
+	}
+
+	if !config.EnableNet {
+		t.Error("--net should enable networking (EnableNet=true)")
+	}
+	if config.NetOnly {
+		t.Error("--net should not set NetOnly")
+	}
+	if !NetworkServicesEnabled(config) {
+		t.Error("--net should enable network services")
 	}
 }
 
@@ -140,8 +168,14 @@ func TestNetOnlyEnablesNetworkingWithoutRTL(t *testing.T) {
 	if !config.NetOnly {
 		t.Error("--net-only should set NetOnly=true")
 	}
+	if !NetworkServicesEnabled(config) {
+		t.Error("--net-only should enable network services")
+	}
 	if config.InputFile != "" {
 		t.Error("--net-only should not set an input file")
+	}
+	if config.Filename != "" {
+		t.Error("--net-only should not set a filename")
 	}
 }
 
@@ -150,5 +184,31 @@ func TestDefaultBeastInputPortsInclude30104(t *testing.T) {
 
 	if !reflect.DeepEqual(config.BeastInPorts, PortList{30004, 30104}) {
 		t.Errorf("default BeastInPorts = %v, want [30004 30104]", config.BeastInPorts)
+	}
+}
+
+func TestNetWithIndividualDisableKeepsSomeListeners(t *testing.T) {
+	origArgs := os.Args
+	origCommandLine := flag.CommandLine
+	defer func() {
+		os.Args = origArgs
+		flag.CommandLine = origCommandLine
+	}()
+
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	os.Args = []string{"test", "--net", "--no-http", "--no-sbs"}
+	config, err := ParseFlagsFromSet(flag.CommandLine, os.Args[1:])
+	if err != nil {
+		t.Fatalf("ParseFlagsFromSet returned error: %v", err)
+	}
+
+	if !NetworkServicesEnabled(config) {
+		t.Error("--net with individual disables should still enable some services")
+	}
+	if !config.DisableHTTP {
+		t.Error("--no-http should set DisableHTTP")
+	}
+	if !config.DisableSBS {
+		t.Error("--no-sbs should set DisableSBS")
 	}
 }

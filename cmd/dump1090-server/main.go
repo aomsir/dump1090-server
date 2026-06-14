@@ -154,6 +154,9 @@ type Config struct {
 	// Net-only mode
 	NetOnly bool
 
+	// Mode A/C demodulation
+	ModeAC bool
+
 	// Interactive mode settings
 	Interactive     bool
 	InteractiveRows int
@@ -434,6 +437,9 @@ func parseFlags() *Config {
 	// Net-only mode
 	flag.BoolVar(&config.NetOnly, "net-only", false, "Network only mode, no RTL-SDR device")
 
+	// Mode A/C demodulation
+	flag.BoolVar(&config.ModeAC, "modeac", false, "Enable Mode A/C demodulation (legacy transponders)")
+
 	flag.Parse()
 
 	config.Frequency = uint32(*freq)
@@ -514,8 +520,10 @@ func (app *App) handleSamples(iq []byte) {
 	// the tail of the previous buffer from the last iteration)
 	app.demod.Demodulate2400(app.magBuf)
 
-	// Demodulate Mode A/C (older transponders)
-	app.demod.Demodulate2400AC(app.magBuf)
+	// Demodulate Mode A/C (only when --modeac is set)
+	if app.config.ModeAC {
+		app.demod.Demodulate2400AC(app.magBuf)
+	}
 
 	// Save tail of current data as overlap for the next buffer
 	copy(app.magBuf.Data[:overlapSamples], app.magBuf.Data[app.magBuf.Length:])
@@ -680,8 +688,10 @@ func (app *App) processFile(filename string) error {
 		// Demodulate Mode S (overlap region still holds previous tail)
 		app.demod.Demodulate2400(app.magBuf)
 
-		// Demodulate Mode A/C (older transponders)
-		app.demod.Demodulate2400AC(app.magBuf)
+		// Demodulate Mode A/C (only when --modeac is set)
+		if app.config.ModeAC {
+			app.demod.Demodulate2400AC(app.magBuf)
+		}
 
 		// Save tail of current data as overlap for the next buffer.
 		// Guard against short reads: if Length < overlapSamples the source

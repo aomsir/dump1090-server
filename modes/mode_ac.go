@@ -73,7 +73,9 @@ func ModeAToModeC(modeA uint32) int {
 		oneHundreds = 6 - oneHundreds
 	}
 
-	return int((fiveHundreds * 5) + oneHundreds - 13)
+	// Cast through int32 to match C behavior where implicit int truncation
+	// on 32-bit systems causes negative altitude wraparound.
+	return int(int32((fiveHundreds * 5) + oneHundreds - 13))
 }
 
 // DecodeID13Field decodes a 13-bit identity (squawk) field.

@@ -278,6 +278,18 @@ func (t *Tracker) UpdateFromModeAC(mm *Message) *Aircraft {
 		modeACAircraft.AltitudeModeC = uint32((mm.Altitude + 49) / 100)
 	}
 
+	// Mode A/C decoded from RF always has at least MODE_S level data validity,
+	// even though the Message Source field may be zero (DecodeModeAMessage does
+	// not set it). Upstream dump1090-mutability does not gate Mode A/C matching
+	// on DataValidity; promote the source so that dataValid() returns true for
+	// squawk and altitude fields.
+	if mm.SquawkValid && modeACAircraft.SquawkValid.Source == SOURCE_INVALID {
+		modeACAircraft.SquawkValid.Source = SOURCE_MODE_S
+	}
+	if mm.AltitudeValid && modeACAircraft.AltitudeValid.Source == SOURCE_INVALID {
+		modeACAircraft.AltitudeValid.Source = SOURCE_MODE_S
+	}
+
 	// Flag Mode A only (no altitude) if applicable
 	if mm.SquawkValid && !mm.AltitudeValid {
 		modeACAircraft.ModeACFlags |= MODEAC_MSG_MODEA_ONLY
@@ -346,7 +358,7 @@ func (t *Tracker) matchModeACWithModeS(modeACAircraft *Aircraft) {
 	}
 }
 
-// PeriodicUpdate performs periodic maintenance (cleanup, etc).
+// PeriodicUpdate performs periodic maintenance (cleanup, Mode A/C rematching).
 // Should be called approximately once per second.
 func (t *Tracker) PeriodicUpdate() {
 	now := uint64(time.Now().UnixMilli())
@@ -384,6 +396,17 @@ func (t *Tracker) PeriodicUpdate() {
 		t.expireField(&a.CPROddValid, now)
 		t.expireField(&a.CPREvenValid, now)
 		t.expireField(&a.PositionValid, now)
+	}
+
+	// Rematch Mode A/C records with Mode S aircraft.
+	// This matches upstream dump1090-mutability track.c behavior where
+	// PeriodicUpdate re-evaluates Mode A/C to Mode S correlations.
+	for _, a := range t.aircraft {
+		if a.ModeACFlags&MODEAC_MSG_FLAG != 0 {
+			// Clear hit flags before rematch
+			a.ModeACFlags &= ^(MODEAC_MSG_MODEA_HIT | MODEAC_MSG_MODEC_HIT | MODEAC_MSG_MODES_HIT)
+			t.matchModeACWithModeS(a)
+		}
 	}
 }
 

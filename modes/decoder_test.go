@@ -271,6 +271,184 @@ func BenchmarkGetbits(b *testing.B) {
 	}
 }
 
+// buildDF17Msg builds a 14-byte DF17 message with a correct CRC.
+func buildDF17Msg(icao uint32, me [7]byte) []byte {
+	msg := make([]byte, MODES_LONG_MSG_BYTES)
+	msg[0] = 0x8D // DF17, CA=5
+	msg[1] = byte(icao >> 16)
+	msg[2] = byte(icao >> 8)
+	msg[3] = byte(icao)
+	copy(msg[4:11], me[:])
+	crc := ModesChecksum(msg, MODES_LONG_MSG_BITS)
+	msg[11] = byte(crc >> 16)
+	msg[12] = byte(crc >> 8)
+	msg[13] = byte(crc)
+	return msg
+}
+
+// buildDF18Msg builds a 14-byte DF18 message with a correct CRC.
+func buildDF18Msg(cf byte, addr uint32, me [7]byte) []byte {
+	msg := make([]byte, MODES_LONG_MSG_BYTES)
+	msg[0] = 0x90 | (cf & 0x07) // DF18 = 10010, bits 6-8 = CF
+	msg[1] = byte(addr >> 16)
+	msg[2] = byte(addr >> 8)
+	msg[3] = byte(addr)
+	copy(msg[4:11], me[:])
+	crc := ModesChecksum(msg, MODES_LONG_MSG_BITS)
+	msg[11] = byte(crc >> 16)
+	msg[12] = byte(crc >> 8)
+	msg[13] = byte(crc)
+	return msg
+}
+
+// buildDF20Msg builds a 14-byte DF20 message whose CRC syndrome equals icao.
+func buildDF20Msg(icao uint32, mb [7]byte) []byte {
+	msg := make([]byte, MODES_LONG_MSG_BYTES)
+	msg[0] = 0xA0 // DF20, FS=0
+	copy(msg[4:11], mb[:])
+	// Compute CRC of data portion (bytes 0-10) with zero AP
+	dataCRC := ModesChecksum(msg, MODES_LONG_MSG_BITS)
+	// AP = dataCRC XOR ICAO so that CRC syndrome of full message = ICAO
+	ap := dataCRC ^ icao
+	msg[11] = byte(ap >> 16)
+	msg[12] = byte(ap >> 8)
+	msg[13] = byte(ap)
+	return msg
+}
+
+func TestDecodeExtendedSquitterMEType0DispatchesAirbornePosition(t *testing.T) {
+	ModesChecksumInit(2)
+
+	// ME type 0 with AC12 = 0x1D0 (4600 feet, Q-bit set, N=224)
+	me := [7]byte{0x00, 0x1D, 0x00, 0x00, 0x00, 0x00, 0x00}
+	msg := buildDF17Msg(0x4840D6, me)
+
+	mm, result := DecodeModesMessage(msg)
+	if result != 0 {
+		t.Fatalf("DecodeModesMessage failed: result %d", result)
+	}
+
+	if mm.METype != 0 {
+		t.Errorf("METype = %d, want 0", mm.METype)
+	}
+	if !mm.AltitudeValid {
+		t.Fatal("AltitudeValid = false, want true")
+	}
+	if mm.Altitude != 4600 {
+		t.Errorf("Altitude = %d, want 4600", mm.Altitude)
+	}
+	if mm.AltitudeSource != ALTITUDE_BARO {
+		t.Errorf("AltitudeSource = %v, want ALTITUDE_BARO", mm.AltitudeSource)
+	}
+	if mm.CPRNUCP != 0 {
+		t.Errorf("CPRNUCP = %d, want 0 for ME type 0", mm.CPRNUCP)
+	}
+}
+
+func TestDecodeDF18CF5MarksTISBNonICAO(t *testing.T) {
+	ModesChecksumInit(2)
+
+	me := [7]byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	msg := buildDF18Msg(5, 0x123456, me)
+
+	mm, result := DecodeModesMessage(msg)
+	if result != 0 {
+		t.Fatalf("DecodeModesMessage failed: result %d", result)
+	}
+
+	if mm.Source != SOURCE_TISB {
+		t.Errorf("Source = %v, want SOURCE_TISB", mm.Source)
+	}
+	if mm.AddrType != ADDR_TISB_OTHER {
+		t.Errorf("AddrType = %v, want ADDR_TISB_OTHER", mm.AddrType)
+	}
+	if mm.Addr&MODES_NON_ICAO_ADDRESS == 0 {
+		t.Error("Addr does not have MODES_NON_ICAO_ADDRESS flag set")
+	}
+}
+
+func TestDecodeDF18UnknownCFDoesNotDecodePayloadAsKnownES(t *testing.T) {
+	ModesChecksumInit(2)
+
+	// ME type 4 (callsign) with AIS space chars; if decoded, CallsignValid would be true
+	me := [7]byte{0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20}
+	msg := buildDF18Msg(4, 0x4840D6, me)
+
+	mm, result := DecodeModesMessage(msg)
+	if result != 0 {
+		t.Fatalf("DecodeModesMessage failed: result %d", result)
+	}
+
+	if mm.AddrType != ADDR_UNKNOWN {
+		t.Errorf("AddrType = %v, want ADDR_UNKNOWN", mm.AddrType)
+	}
+	if mm.Addr&MODES_NON_ICAO_ADDRESS == 0 {
+		t.Error("Addr does not have MODES_NON_ICAO_ADDRESS flag set")
+	}
+	if mm.CallsignValid {
+		t.Error("CallsignValid = true, want false (ES payload should not be decoded for unknown CF)")
+	}
+}
+
+func TestDecodeCommBOnlyDecodesBDS20WhenMarkerMatches(t *testing.T) {
+	ModesChecksumInit(2)
+	filter := NewICAOFilter()
+	icao := uint32(0xABCDEF)
+	filter.Add(icao)
+
+	// Callsign "TEST1234" encoded in AIS 6-bit charset.
+	// T=20, E=5, S=19, T=20, 1=49, 2=50, 3=51, 4=52
+	// Packed into 6 bytes: 0x50 0x54 0xD4 0xC7 0x2C 0xF4
+	callsignBytes := [6]byte{0x50, 0x54, 0xD4, 0xC7, 0x2C, 0xF4}
+
+	t.Run("without marker", func(t *testing.T) {
+		var mb [7]byte
+		mb[0] = 0x00 // no BDS 2,0 marker
+		copy(mb[1:], callsignBytes[:])
+		msg := buildDF20Msg(icao, mb)
+
+		mm, result := DecodeModesMessageWithFilter(msg, filter)
+		if result < 0 {
+			t.Fatalf("DecodeModesMessage failed: result %d", result)
+		}
+
+		if mm.CallsignValid {
+			t.Errorf("CallsignValid = true without BDS 2,0 marker, want false (callsign=%q)", string(mm.Callsign[:8]))
+		}
+	})
+
+	t.Run("with marker", func(t *testing.T) {
+		var mb [7]byte
+		mb[0] = 0x20 // BDS 2,0 marker
+		copy(mb[1:], callsignBytes[:])
+		msg := buildDF20Msg(icao, mb)
+
+		mm, result := DecodeModesMessageWithFilter(msg, filter)
+		if result < 0 {
+			t.Fatalf("DecodeModesMessage failed: result %d", result)
+		}
+
+		if !mm.CallsignValid {
+			t.Error("CallsignValid = false with BDS 2,0 marker, want true")
+		}
+		if string(mm.Callsign[:8]) != "TEST1234" {
+			t.Errorf("Callsign = %q, want %q", string(mm.Callsign[:8]), "TEST1234")
+		}
+	})
+}
+
+func TestDecodeAC12QBitZeroMatchesUpstream(t *testing.T) {
+	// AC12 = 0x010: Q-bit set (bit 4), N=0
+	// Upstream returns 0*25-1000 = -1000 feet, not INVALID_ALTITUDE
+	got, unit := decodeAC12Field(0x010)
+	if unit != UNIT_FEET {
+		t.Errorf("unit = %v, want UNIT_FEET", unit)
+	}
+	if got != -1000 {
+		t.Errorf("decodeAC12Field(0x010) = %d, want -1000", got)
+	}
+}
+
 // Example: decode a DF17 Extended Squitter message
 func ExampleDecodeModesMessage() {
 	ModesChecksumInit(2)

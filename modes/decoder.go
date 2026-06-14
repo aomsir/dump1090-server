@@ -103,9 +103,6 @@ func decodeAC12Field(ac12Field int) (altitude int, unit AltitudeUnit) {
 	if qBit != 0 {
 		// N is the 11 bit integer resulting from the removal of bit Q at bit 4
 		n := ((ac12Field & 0x0FE0) >> 1) | (ac12Field & 0x000F)
-		if n == 0 {
-			return INVALID_ALTITUDE, unit
-		}
 		// The final altitude is the resulting number multiplied by 25, minus 1000
 		return n*25 - 1000, unit
 	}
@@ -386,9 +383,10 @@ func DecodeModesMessageWithFilter(msg []byte, filter *ICAOFilter) (*Message, int
 
 // decodeCommB decodes Comm-B message content
 func decodeCommB(mm *Message) {
-	// Try to decode BDS 2,0 (Aircraft Identification)
-	// This is speculative since we don't know the BDS code for sure
-	decodeBDS20(mm)
+	// Only attempt BDS 2,0 decoding when the first MB byte is 0x20
+	if mm.MB[0] == 0x20 {
+		decodeBDS20(mm)
+	}
 }
 
 // decodeBDS20 decodes BDS 2,0 (Aircraft Identification)
@@ -443,14 +441,16 @@ func decodeExtendedSquitter(mm *Message) {
 			}
 			return
 		case 5: // Fine TIS-B, non-ICAO
+			mm.Source = SOURCE_TISB
 			mm.AddrType = ADDR_TISB_OTHER
 			mm.Addr |= MODES_NON_ICAO_ADDRESS
-			checkIMF = true
 		case 6: // ADS-R
 			mm.AddrType = ADDR_ADSR_ICAO
 			checkIMF = true
 		default:
 			mm.AddrType = ADDR_UNKNOWN
+			mm.Addr |= MODES_NON_ICAO_ADDRESS
+			return
 		}
 	}
 
@@ -459,7 +459,7 @@ func decodeExtendedSquitter(mm *Message) {
 		decodeESIdentAndCategory(mm)
 	case 5, 6, 7, 8:
 		decodeESSurfacePosition(mm, checkIMF)
-	case 9, 10, 11, 12, 13, 14, 15, 16, 17, 18:
+	case 0, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18:
 		decodeESAirbornePosition(mm, checkIMF)
 	case 19:
 		decodeESAirborneVelocity(mm, checkIMF)

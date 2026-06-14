@@ -524,7 +524,6 @@ func TestModeACPeriodicRematch(t *testing.T) {
 		Altitude:      100,
 		AltitudeModeC: 1,
 	}
-	// Initialize signal levels
 	for i := range modeS.SignalLevel {
 		modeS.SignalLevel[i] = 1e-5
 	}
@@ -532,16 +531,13 @@ func TestModeACPeriodicRematch(t *testing.T) {
 	tracker.mu.Unlock()
 
 	// Create a Mode A/C message with matching squawk and altitude.
-	// Mode A code 0x1620: A1(0x1000)+B2(0x0200)+C2(0x0020)+B4(0x0400)
-	// Squawk = 0x1620 & 0x7777 = 0x1200 (matches Mode S)
-	// Gillham: fiveHundreds=6, oneHundreds=3, (6*5+3-13)=20, int32 wraps to 0 → altitude 0 ft
+	// Mode A code 0x1620: A1(0x1000)+B4(0x0400)+B2(0x0200)+C2(0x0020)
 	modeACCode := 0x1620
 	mm := DecodeModeAMessage(modeACCode)
 	if mm == nil {
 		t.Fatal("DecodeModeAMessage returned nil")
 	}
 
-	// Push the Mode A/C message through UpdateFromModeAC
 	tracker.UpdateFromModeAC(mm)
 
 	// Verify the Mode A/C synthetic aircraft was created
@@ -559,11 +555,9 @@ func TestModeACPeriodicRematch(t *testing.T) {
 		t.Fatal("Mode A/C synthetic aircraft not created")
 	}
 
-	// Now call PeriodicUpdate - it should rematch Mode A/C with Mode S aircraft
+	// PeriodicUpdate should rematch Mode A/C with Mode S aircraft
 	tracker.PeriodicUpdate()
 
-	// After periodic update, the Mode S aircraft should have refreshed
-	// Mode A/C hit flags if squawk matches.
 	tracker.mu.RLock()
 	updatedModeS := tracker.aircraft[modeSAddr]
 	tracker.mu.RUnlock()
@@ -572,10 +566,82 @@ func TestModeACPeriodicRematch(t *testing.T) {
 		t.Fatal("Mode S aircraft should still exist after PeriodicUpdate")
 	}
 
-	// PeriodicUpdate should have rematched Mode A/C records with Mode S aircraft.
-	// If squawk matches (0x1620 == 0x1620), MODEA_HIT should be set.
+	// Squawk matches (0x1620 == 0x1620), MODEA_HIT should be set.
 	if updatedModeS.ModeACFlags&MODEAC_MSG_MODEA_HIT == 0 {
 		t.Error("PeriodicUpdate should rematch Mode A/C records with Mode S aircraft (MODEA_HIT not set)")
+	}
+}
+
+func TestModeACStaleFlagClearing(t *testing.T) {
+	tracker := NewTracker()
+	ModesChecksumInit(2)
+
+	now := uint64(time.Now().UnixMilli())
+
+	// Create Mode S aircraft with squawk 0x1620, altitude 100ft (ModeC=1).
+	tracker.mu.Lock()
+	modeSAddr := uint32(0x4840D6)
+	tracker.aircraft[modeSAddr] = &Aircraft{
+		Addr:     modeSAddr,
+		AddrType: ADDR_ADSB_ICAO,
+		Seen:     now,
+		Messages: 10,
+		SquawkValid: DataValidity{
+			Source:  SOURCE_ADSB,
+			Updated: now,
+			Stale:   now + 60000,
+			Expires: now + 70000,
+		},
+		Squawk: 0x1620,
+		AltitudeValid: DataValidity{
+			Source:  SOURCE_ADSB,
+			Updated: now,
+			Stale:   now + 60000,
+			Expires: now + 70000,
+		},
+		Altitude:      100,
+		AltitudeModeC: 1,
+	}
+	tracker.mu.Unlock()
+
+	// Create a Mode A/C record with matching squawk 0x1620.
+	mm := DecodeModeAMessage(0x1620)
+	tracker.UpdateFromModeAC(mm)
+
+	// First PeriodicUpdate: establishes the match.
+	tracker.PeriodicUpdate()
+
+	tracker.mu.RLock()
+	modeS := tracker.aircraft[modeSAddr]
+	hasModeAHit := modeS.ModeACFlags&MODEAC_MSG_MODEA_HIT != 0
+	tracker.mu.RUnlock()
+
+	if !hasModeAHit {
+		t.Fatal("Precondition: MODEA_HIT should be set after initial match")
+	}
+
+	// Now change the Mode A/C synthetic aircraft's squawk so it no longer
+	// matches Mode S aircraft. This simulates the Mode A/C record changing
+	// (e.g., different aircraft replying on the same Mode A code).
+	tracker.mu.Lock()
+	for _, a := range tracker.aircraft {
+		if a.ModeACFlags&MODEAC_MSG_FLAG != 0 {
+			a.Squawk = 0x7700 // different squawk, no longer matches
+			break
+		}
+	}
+	tracker.mu.Unlock()
+
+	// Second PeriodicUpdate: should clear stale flags on Mode S aircraft.
+	tracker.PeriodicUpdate()
+
+	tracker.mu.RLock()
+	modeS = tracker.aircraft[modeSAddr]
+	staleModeAHit := modeS.ModeACFlags&MODEAC_MSG_MODEA_HIT != 0
+	tracker.mu.RUnlock()
+
+	if staleModeAHit {
+		t.Error("PeriodicUpdate should clear stale MODEA_HIT on Mode S aircraft when match no longer applies")
 	}
 }
 

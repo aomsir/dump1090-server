@@ -401,10 +401,14 @@ func (t *Tracker) PeriodicUpdate() {
 	// Rematch Mode A/C records with Mode S aircraft.
 	// This matches upstream dump1090-mutability track.c behavior where
 	// PeriodicUpdate re-evaluates Mode A/C to Mode S correlations.
+	// Clear hit flags on ALL aircraft before rematching so stale flags
+	// from previous matches that no longer apply are removed.
+	hitMask := ^(MODEAC_MSG_MODEA_HIT | MODEAC_MSG_MODEC_HIT | MODEAC_MSG_MODES_HIT)
+	for _, a := range t.aircraft {
+		a.ModeACFlags &= hitMask
+	}
 	for _, a := range t.aircraft {
 		if a.ModeACFlags&MODEAC_MSG_FLAG != 0 {
-			// Clear hit flags before rematch
-			a.ModeACFlags &= ^(MODEAC_MSG_MODEA_HIT | MODEAC_MSG_MODEC_HIT | MODEAC_MSG_MODES_HIT)
 			t.matchModeACWithModeS(a)
 		}
 	}

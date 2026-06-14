@@ -81,7 +81,8 @@ const (
 	defaultRawInPort = 30001
 
 	// Heartbeat interval (matching C version)
-	heartbeatInterval = 60 * time.Second
+	heartbeatInterval         = 60 * time.Second
+	defaultHeartbeatInterval  = 60 * time.Second
 
 	// Buffer sizes
 	asyncBufNum = 12
@@ -132,6 +133,9 @@ type Config struct {
 
 	// Network bind address
 	NetBindAddress string
+
+	// Heartbeat interval for output clients. 0 disables heartbeats.
+	HeartbeatInterval time.Duration
 
 	// Receiver location
 	Latitude  float64
@@ -190,10 +194,10 @@ type App struct {
 	decodedMessages uint64
 
 	// Network clients
-	beastClients sync.Map
-	avrClients   sync.Map
-	sbsClients   sync.Map
-	fatsvClients sync.Map
+	beastSvc *NetworkService
+	avrSvc   *NetworkService
+	sbsSvc   *NetworkService
+	fatsvSvc *NetworkService
 
 	// Buffers
 	magBuf *modes.MagBuf
@@ -229,6 +233,10 @@ func main() {
 		tracker:        modes.NewTracker(),
 		demod:          modes.NewDemodulator(),
 		statsCollector: statsCollector,
+		beastSvc:       newNetworkService("Beast output"),
+		avrSvc:         newNetworkService("AVR output"),
+		sbsSvc:         newNetworkService("SBS"),
+		fatsvSvc:       newNetworkService("FATSV"),
 	}
 
 	// Inject stats collector into components
@@ -306,19 +314,19 @@ func main() {
 		}
 		if !config.DisableBeast {
 			app.wg.Add(1)
-			go app.runBeastOutputServer()
+			go app.runOutputTCPServer(app.beastSvc, config.BeastOutPort)
 		}
 		if !config.DisableAVR {
 			app.wg.Add(1)
-			go app.runAVROutputServer()
+			go app.runOutputTCPServer(app.avrSvc, config.AVROutPort)
 		}
 		if !config.DisableSBS {
 			app.wg.Add(1)
-			go app.runSBSServer()
+			go app.runOutputTCPServer(app.sbsSvc, config.SBSPort)
 		}
 		if !config.DisableFATSV {
 			app.wg.Add(1)
-			go app.runFATSVServer()
+			go app.runOutputTCPServer(app.fatsvSvc, config.FATSVPort)
 		}
 
 		// Start network input services
@@ -500,33 +508,21 @@ func (app *App) broadcastMessage(mm *modes.Message, aircraft *modes.Aircraft) {
 	// Beast output
 	if !app.config.DisableBeast {
 		beastData := modes.EncodeBeast(mm)
-		app.beastClients.Range(func(key, value interface{}) bool {
-			client := value.(*NetworkClient)
-			client.Write(beastData)
-			return true
-		})
+		app.beastSvc.Broadcast(beastData)
 	}
 
 	// AVR output
 	if !app.config.DisableAVR {
 		// C version defaults to no timestamp (only in MLAT mode)
 		avrData := modes.EncodeAVR(mm, false)
-		app.avrClients.Range(func(key, value interface{}) bool {
-			client := value.(*NetworkClient)
-			client.Write([]byte(avrData))
-			return true
-		})
+		app.avrSvc.Broadcast([]byte(avrData))
 	}
 
 	// SBS output
 	if !app.config.DisableSBS {
 		sbsData := modes.EncodeSBS(mm, aircraft)
 		if sbsData != "" {
-			app.sbsClients.Range(func(key, value interface{}) bool {
-				client := value.(*NetworkClient)
-				client.Write([]byte(sbsData))
-				return true
-			})
+			app.sbsSvc.Broadcast([]byte(sbsData))
 		}
 	}
 
@@ -535,11 +531,7 @@ func (app *App) broadcastMessage(mm *modes.Message, aircraft *modes.Aircraft) {
 	if !app.config.DisableFATSV && aircraft != nil {
 		fatsvEvent := app.fatsvWriter.WriteFATSVEvent(mm, aircraft)
 		if fatsvEvent != nil {
-			app.fatsvClients.Range(func(key, value interface{}) bool {
-				client := value.(*NetworkClient)
-				client.Write(fatsvEvent)
-				return true
-			})
+			app.fatsvSvc.Broadcast(fatsvEvent)
 		}
 	}
 }
@@ -722,79 +714,13 @@ func (app *App) runHTTPServer() {
 	}
 }
 
-func (app *App) runBeastOutputServer() {
-	defer app.wg.Done()
-	app.runTCPServer("Beast output", app.config.BeastOutPort, &app.beastClients)
-}
-
-func (app *App) runAVROutputServer() {
-	defer app.wg.Done()
-	app.runTCPServer("AVR output", app.config.AVROutPort, &app.avrClients)
-}
-
-func (app *App) runSBSServer() {
-	defer app.wg.Done()
-	app.runTCPServer("SBS", app.config.SBSPort, &app.sbsClients)
-}
-
-func (app *App) runFATSVServer() {
-	defer app.wg.Done()
-	app.runTCPServer("FATSV", app.config.FATSVPort, &app.fatsvClients)
-}
-
-func (app *App) runTCPServer(name string, port int, clients *sync.Map) {
-	addr := fmt.Sprintf("%s:%d", app.config.NetBindAddress, port)
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		log.Printf("%s server error: %v", name, err)
-		return
-	}
-	defer listener.Close()
-
-	log.Printf("%s server listening on %s", name, addr)
-
-	go func() {
-		<-app.ctx.Done()
-		listener.Close()
-	}()
-
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			select {
-			case <-app.ctx.Done():
-				return
-			default:
-				log.Printf("%s accept error: %v", name, err)
-				continue
-			}
-		}
-
-		clientID := conn.RemoteAddr().String()
-		client := newNetworkClient(conn)
-		clients.Store(clientID, client)
-
-		go func(id string, nc *NetworkClient) {
-			defer func() {
-				clients.Delete(id)
-				nc.Close()
-			}()
-
-			// Keep connection alive until closed or context cancelled
-			buf := make([]byte, 1024)
-			for {
-				nc.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-				_, err := nc.conn.Read(buf)
-				if err != nil {
-					return
-				}
-			}
-		}(clientID, client)
-	}
-}
-
 // sendHeartbeats sends heartbeat messages to idle connections
 func (app *App) sendHeartbeats() {
+	interval := app.config.HeartbeatInterval
+	if interval <= 0 {
+		return
+	}
+
 	// Raw/AVR heartbeat: *0000;\n
 	avrHeartbeat := []byte("*0000;\n")
 
@@ -807,41 +733,10 @@ func (app *App) sendHeartbeats() {
 	// FATSV heartbeat: empty line (matching C version net_io.c:2105)
 	fatsvHeartbeat := []byte("\n")
 
-	// Send to Beast clients
-	app.beastClients.Range(func(key, value interface{}) bool {
-		client := value.(*NetworkClient)
-		if client.shouldSendHeartbeat(heartbeatInterval) {
-			client.Write(beastHeartbeat)
-		}
-		return true
-	})
-
-	// Send to AVR clients
-	app.avrClients.Range(func(key, value interface{}) bool {
-		client := value.(*NetworkClient)
-		if client.shouldSendHeartbeat(heartbeatInterval) {
-			client.Write(avrHeartbeat)
-		}
-		return true
-	})
-
-	// Send to SBS clients
-	app.sbsClients.Range(func(key, value interface{}) bool {
-		client := value.(*NetworkClient)
-		if client.shouldSendHeartbeat(heartbeatInterval) {
-			client.Write(sbsHeartbeat)
-		}
-		return true
-	})
-
-	// Send to FATSV clients
-	app.fatsvClients.Range(func(key, value interface{}) bool {
-		client := value.(*NetworkClient)
-		if client.shouldSendHeartbeat(heartbeatInterval) {
-			client.Write(fatsvHeartbeat)
-		}
-		return true
-	})
+	app.beastSvc.sendHeartbeats(beastHeartbeat, interval)
+	app.avrSvc.sendHeartbeats(avrHeartbeat, interval)
+	app.sbsSvc.sendHeartbeats(sbsHeartbeat, interval)
+	app.fatsvSvc.sendHeartbeats(fatsvHeartbeat, interval)
 }
 
 func (app *App) runPeriodicTasks() {
@@ -909,11 +804,7 @@ func (app *App) runPeriodicTasks() {
 				if !app.config.DisableFATSV && app.fatsvWriter != nil {
 					fatsvData := app.fatsvWriter.WriteFATSV()
 					if len(fatsvData) > 0 {
-						app.fatsvClients.Range(func(key, value interface{}) bool {
-							client := value.(*NetworkClient)
-							client.Write(fatsvData)
-							return true
-						})
+						app.fatsvSvc.Broadcast(fatsvData)
 					}
 				}
 

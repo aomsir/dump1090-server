@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // PortList holds a list of parsed port numbers.
@@ -115,6 +116,8 @@ func DefaultConfig() *Config {
 		Gain:     defaultGain,
 		MaxRange: 300,
 
+		HeartbeatInterval: defaultHeartbeatInterval,
+
 		WriteJSONEvery:   1.0,
 		HistorySize:      120,
 		HistoryInterval:  30,
@@ -202,6 +205,9 @@ func ParseFlagsFromSet(fs *flag.FlagSet, args []string) (*Config, error) {
 	fs.BoolVar(&config.EnableNet, "net", false, "Enable networking (start HTTP, Beast, AVR, SBS, FATSV servers)")
 	fs.BoolVar(&config.NetOnly, "net-only", false, "Network only mode, no RTL-SDR device (implies --net)")
 
+	// Heartbeat
+	heartbeatSec := fs.Int("heartbeat-interval", 60, "Output client heartbeat interval in seconds (0 to disable)")
+
 	// Mode A/C demodulation
 	fs.BoolVar(&config.ModeAC, "modeac", false, "Enable Mode A/C demodulation (legacy transponders)")
 
@@ -212,6 +218,7 @@ func ParseFlagsFromSet(fs *flag.FlagSet, args []string) (*Config, error) {
 	config.Frequency = uint32(*freq)
 	config.SampleRate = uint32(*rate)
 	config.ShowOnly = uint32(*showOnly)
+	config.HeartbeatInterval = time.Duration(*heartbeatSec) * time.Second
 
 	// --net-only implies --net
 	if config.NetOnly {

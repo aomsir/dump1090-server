@@ -110,93 +110,9 @@ func BeastHeartbeatMessage() []byte {
 
 // DecodeBeast decodes a Beast binary format message.
 // Returns the message, remaining data, and any error.
+// This is a wrapper around DecodeBeastWithConfig with modeAC=true for backward compatibility.
 func DecodeBeast(data []byte) (*Message, []byte, error) {
-	if len(data) < 11 {
-		return nil, data, fmt.Errorf("buffer too short")
-	}
-
-	// Find start byte
-	idx := bytes.IndexByte(data, BeastEscape)
-	if idx < 0 {
-		return nil, nil, fmt.Errorf("no beast message found")
-	}
-	data = data[idx:]
-
-	if len(data) < 11 {
-		return nil, data, fmt.Errorf("incomplete message")
-	}
-
-	// Get type
-	msgType := data[1]
-	var msgLen int
-	switch msgType {
-	case BeastTypeModeAC:
-		msgLen = 2
-	case BeastTypeShort:
-		msgLen = MODES_SHORT_MSG_BYTES
-	case BeastTypeLong:
-		msgLen = MODES_LONG_MSG_BYTES
-	default:
-		return nil, data[2:], fmt.Errorf("unknown beast type: %c", msgType)
-	}
-
-	// Handle heartbeat (type 1 with all zeros after type byte)
-	if msgType == BeastTypeModeAC {
-		isHeartbeat := true
-		for i := 2; i < 11 && i < len(data); i++ {
-			if data[i] != 0 {
-				isHeartbeat = false
-				break
-			}
-		}
-		if isHeartbeat {
-			// Heartbeat: return nil message, consume the heartbeat bytes
-			return nil, data[11:], nil
-		}
-	}
-
-	// Unescape and extract timestamp + signal + message
-	raw := make([]byte, 0, 7+msgLen)
-	pos := 2
-	for len(raw) < 7+msgLen && pos < len(data) {
-		b := data[pos]
-		pos++
-		if b == BeastEscape && pos < len(data) {
-			// Skip the duplicate escape
-			if data[pos] == BeastEscape {
-				pos++
-			}
-		}
-		raw = append(raw, b)
-	}
-
-	if len(raw) < 7+msgLen {
-		return nil, data, fmt.Errorf("incomplete message data")
-	}
-
-	// Extract timestamp (6 bytes big-endian)
-	ts := uint64(raw[0])<<40 | uint64(raw[1])<<32 | uint64(raw[2])<<24 |
-		uint64(raw[3])<<16 | uint64(raw[4])<<8 | uint64(raw[5])
-
-	// Extract signal level
-	sigByte := raw[6]
-	signalLevel := float64(sigByte) / 255.0
-	signalLevel = signalLevel * signalLevel // Convert back from sqrt
-
-	// Extract message
-	msgBytes := raw[7 : 7+msgLen]
-
-	// Decode the message
-	mm, err := DecodeModesMessage(msgBytes)
-	if err != 0 {
-		return nil, data[pos:], fmt.Errorf("failed to decode message: %d", err)
-	}
-
-	mm.Timestamp = ts
-	mm.TimestampMsg = ts // Beast format timestamp is used for MLAT detection
-	mm.SignalLevel = signalLevel
-
-	return mm, data[pos:], nil
+	return DecodeBeastWithConfig(data, true)
 }
 
 // AircraftJSON represents a single aircraft in JSON output.

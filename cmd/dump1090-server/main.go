@@ -932,7 +932,7 @@ func (app *App) handleRawInputConnection(conn net.Conn) {
 }
 
 // decodeRawMessage decodes AVR format messages
-// Supports formats: *HEXDATA; @TIMESTAMP*HEXDATA; %TIMESTAMP*HEXDATA; <TIMESTAMP+SIG*HEXDATA;
+// Supports formats: *HEXDATA; @TIMESTAMP*HEXDATA; @TIMESTAMPHEXDATA; <TIMESTAMP+SIG*HEXDATA;
 func (app *App) decodeRawMessage(line string) *modes.Message {
 	// Trim whitespace
 	line = trimSpace(line)
@@ -941,6 +941,7 @@ func (app *App) decodeRawMessage(line string) *modes.Message {
 	}
 
 	// Use the new ParseRawAVR function from modes package
+	// Remote flag is set by ParseRawAVR for network input
 	mm, err := modes.ParseRawAVR(line, app.config.ModeAC)
 	if err != nil {
 		return nil
@@ -948,9 +949,6 @@ func (app *App) decodeRawMessage(line string) *modes.Message {
 	if mm == nil {
 		return nil
 	}
-
-	// Set Remote flag for network input
-	mm.Remote = true
 
 	return mm
 }
@@ -1060,40 +1058,4 @@ func trimSpace(s string) string {
 		end--
 	}
 	return s[start:end]
-}
-
-func parseHexByte(s string) (byte, error) {
-	if len(s) != 2 {
-		return 0, fmt.Errorf("invalid hex byte")
-	}
-	var b byte
-	for _, c := range s {
-		b <<= 4
-		switch {
-		case c >= '0' && c <= '9':
-			b |= byte(c - '0')
-		case c >= 'a' && c <= 'f':
-			b |= byte(c - 'a' + 10)
-		case c >= 'A' && c <= 'F':
-			b |= byte(c - 'A' + 10)
-		default:
-			return 0, fmt.Errorf("invalid hex char")
-		}
-	}
-	return b, nil
-}
-
-func decodeHex(s string) ([]byte, error) {
-	if len(s)%2 != 0 {
-		return nil, fmt.Errorf("odd length hex string")
-	}
-	result := make([]byte, len(s)/2)
-	for i := 0; i < len(result); i++ {
-		b, err := parseHexByte(s[i*2 : i*2+2])
-		if err != nil {
-			return nil, err
-		}
-		result[i] = b
-	}
-	return result, nil
 }

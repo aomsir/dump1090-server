@@ -109,3 +109,93 @@ func TestParseRawAVRModeACWhenEnabled(t *testing.T) {
 		t.Errorf("Expected MsgType=32 for Mode A/C, got %d", mm.MsgType)
 	}
 }
+
+func TestParseRawAVRBeastAVRFormatWithSignal(t *testing.T) {
+	// <TIMESTAMP+SIGNAL*HEXDATA; format should be supported
+	// Format: < + 12 hex timestamp + 2 hex signal + HEXDATA + ;
+	// Example: <000000000001FF8D4840D6202CC371C32CE0576098;
+	ModesChecksumInit(2)
+	input := "<000000000001FF8D4840D6202CC371C32CE0576098;"
+	mm, err := ParseRawAVR(input, false)
+	if err != nil {
+		t.Fatalf("ParseRawAVR() failed: %v", err)
+	}
+	if mm == nil {
+		t.Fatal("ParseRawAVR() returned nil message")
+	}
+	// Verify timestamp was parsed
+	if mm.TimestampMsg != 1 {
+		t.Errorf("Expected TimestampMsg=1, got %d", mm.TimestampMsg)
+	}
+	// Verify signal level was parsed (0xFF = 255, normalized to ~1.0)
+	if mm.SignalLevel <= 0 {
+		t.Errorf("Expected positive SignalLevel, got %f", mm.SignalLevel)
+	}
+	// Verify message is valid DF17
+	if mm.MsgBits != 112 {
+		t.Errorf("Expected 112 bits, got %d", mm.MsgBits)
+	}
+}
+
+func TestParseRawAVRSetsRemoteFlag(t *testing.T) {
+	// ParseRawAVR should set Remote=true for network input
+	ModesChecksumInit(2)
+	input := "*8D4840D6202CC371C32CE0576098;"
+	mm, err := ParseRawAVR(input, false)
+	if err != nil {
+		t.Fatalf("ParseRawAVR() failed: %v", err)
+	}
+	if mm == nil {
+		t.Fatal("ParseRawAVR() returned nil message")
+	}
+	if !mm.Remote {
+		t.Error("Expected Remote=true for network input")
+	}
+}
+
+func TestParseRawAVREmptyString(t *testing.T) {
+	// Empty string should return nil message, no error
+	mm, err := ParseRawAVR("", false)
+	if err != nil {
+		t.Fatalf("ParseRawAVR() unexpected error: %v", err)
+	}
+	if mm != nil {
+		t.Error("Expected nil message for empty string")
+	}
+}
+
+func TestParseRawAVROddLengthHex(t *testing.T) {
+	// Odd-length hex should return error
+	input := "*ABC;"
+	_, err := ParseRawAVR(input, false)
+	if err == nil {
+		t.Error("Expected error for odd-length hex")
+	}
+}
+
+func TestParseRawAVRInvalidHexChars(t *testing.T) {
+	// Invalid hex characters should return error
+	input := "*ZZZZ;"
+	_, err := ParseRawAVR(input, false)
+	if err == nil {
+		t.Error("Expected error for invalid hex chars")
+	}
+}
+
+func TestParseRawAVRTooShortTimestamp(t *testing.T) {
+	// Timestamp format with less than 12 hex chars should fail
+	input := "@12345*8D4840D6202CC371C32CE0576098;"
+	_, err := ParseRawAVR(input, false)
+	if err == nil {
+		t.Error("Expected error for too-short timestamp")
+	}
+}
+
+func TestParseRawAVREmptyPayload(t *testing.T) {
+	// Empty payload after * should return error
+	input := "*;"
+	_, err := ParseRawAVR(input, false)
+	if err == nil {
+		t.Error("Expected error for empty payload")
+	}
+}

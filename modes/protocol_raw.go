@@ -17,9 +17,11 @@ import (
 //   - *HEX; or *HEX (untimed)
 //   - @TIMESTAMP*HEX; (timed with star separator)
 //   - @TIMESTAMPHEX; (timed without star separator - upstream format)
+//   - <TIMESTAMP+SIGNAL*HEX; (Beast AVR format with signal level)
 //
 // If modeAC is true, two-byte Mode A/C messages are decoded.
 // Returns nil message if the format is invalid or Mode A/C is disabled for 2-byte messages.
+// Sets Remote=true on all parsed messages (network input).
 func ParseRawAVR(input string, modeAC bool) (*Message, error) {
 	if len(input) == 0 {
 		return nil, nil
@@ -32,6 +34,7 @@ func ParseRawAVR(input string, modeAC bool) (*Message, error) {
 
 	var hexData string
 	var timestamp uint64
+	var signalLevel float64
 	hasTimestamp := false
 
 	switch input[0] {
@@ -63,6 +66,36 @@ func ParseRawAVR(input string, modeAC bool) (*Message, error) {
 			hexData = input[13:]
 		}
 
+	case '<':
+		// Beast AVR format: <TIMESTAMP+SIGNAL*HEX or <TIMESTAMP+SIG*HEX
+		// 12 hex timestamp + 2 hex signal = 14 chars after <
+		if len(input) < 16 {
+			return nil, fmt.Errorf("too short for Beast AVR format")
+		}
+
+		// Parse timestamp (12 hex chars)
+		ts, err := parseHexString(input[1:13])
+		if err != nil {
+			return nil, fmt.Errorf("invalid timestamp: %v", err)
+		}
+		timestamp = ts
+		hasTimestamp = true
+
+		// Parse signal level (2 hex chars at position 13-14)
+		sig, err := parseHexByte(input[13:15])
+		if err != nil {
+			return nil, fmt.Errorf("invalid signal level: %v", err)
+		}
+		signalLevel = float64(sig) / 255.0
+		signalLevel = signalLevel * signalLevel
+
+		// Skip * separator if present
+		if len(input) > 15 && input[15] == '*' {
+			hexData = input[16:]
+		} else {
+			hexData = input[15:]
+		}
+
 	default:
 		return nil, nil
 	}
@@ -84,6 +117,8 @@ func ParseRawAVR(input string, modeAC bool) (*Message, error) {
 			mm.Timestamp = timestamp
 			mm.TimestampMsg = timestamp
 		}
+		mm.SignalLevel = signalLevel
+		mm.Remote = true
 		return mm, nil
 	}
 
@@ -101,6 +136,8 @@ func ParseRawAVR(input string, modeAC bool) (*Message, error) {
 		mm.Timestamp = timestamp
 		mm.TimestampMsg = timestamp
 	}
+	mm.SignalLevel = signalLevel
+	mm.Remote = true
 
 	return mm, nil
 }

@@ -918,7 +918,8 @@ func (d *Demodulator) Demodulate2400AC(mag *MagBuf) {
 			continue
 		}
 
-		// Set timestamp (f1Clock is in 1/25 sample units; convert to 12MHz ticks: /5)
+		// f1Clock is in 1/25-sample units at 2.4MHz; divide by 5 to get
+		// 12MHz ticks (25 clock-units/sample ÷ 5 ticks/sample = 5 clock-units/tick).
 		mm.Timestamp = mag.SampleTimestamp + uint64(f1Clock/5)
 		mm.SysTimestamp = timestampFromSampleOffset(mag.SysTimestamp, uint64(f1Clock/5))
 

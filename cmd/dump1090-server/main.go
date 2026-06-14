@@ -88,10 +88,9 @@ const (
 	asyncBufNum = 12
 	asyncBufLen = 256 * 1024 // 256K samples per buffer
 
-	// overlapSamples must cover preamble + longest Mode S message so the
-	// demodulator can decode messages that straddle buffer boundaries.
-	// The demod loop needs 19 preamble samples + 112*12/5 = 268 data
-	// samples = 287 total; 300 adds margin for phase offset.
+	// overlapSamples must cover the 19-sample preamble detection window
+	// plus the longest Mode S message (112 bits * 12/5 = 268 samples =
+	// 287 total); 300 adds margin for phase offset.
 	overlapSamples = 300
 )
 
@@ -684,8 +683,12 @@ func (app *App) processFile(filename string) error {
 		// Demodulate Mode A/C (older transponders)
 		app.demod.Demodulate2400AC(app.magBuf)
 
-		// Save tail of current data as overlap for the next buffer
-		copy(app.magBuf.Data[:overlapSamples], app.magBuf.Data[app.magBuf.Length:])
+		// Save tail of current data as overlap for the next buffer.
+		// Guard against short reads: if Length < overlapSamples the source
+		// region still contains stale previous overlap, so skip the copy.
+		if app.magBuf.Length >= overlapSamples {
+			copy(app.magBuf.Data[:overlapSamples], app.magBuf.Data[app.magBuf.Length:])
+		}
 	}
 
 	return nil

@@ -124,8 +124,13 @@ type Config struct {
 	// Network input settings
 	RawInPort      int
 	BeastInPort    int
+	BeastInPorts   PortList // multiple Beast input ports (default 30004,30104)
 	DisableRawIn   bool
 	DisableBeastIn bool
+
+	// Network control
+	EnableNet bool // --net: enable networking
+	NetOnly   bool // --net-only: network only, no RTL/file input (implies --net)
 
 	// Network bind address
 	NetBindAddress string
@@ -150,9 +155,6 @@ type Config struct {
 	FixCRC     bool
 	Aggressive bool
 	Metric     bool
-
-	// Net-only mode
-	NetOnly bool
 
 	// Mode A/C demodulation
 	ModeAC bool
@@ -361,98 +363,11 @@ func main() {
 }
 
 func parseFlags() *Config {
-	config := &Config{
-		Frequency:  defaultFrequency,
-		SampleRate: defaultSampleRate,
+	config, err := ParseFlagsFromSet(flag.CommandLine, os.Args[1:])
+	if err != nil {
+		log.Fatalf("flag parse error: %v", err)
 	}
-
-	// Device settings
-	flag.IntVar(&config.DeviceIndex, "device", 0, "RTL-SDR device index")
-	freq := flag.Uint("freq", defaultFrequency, "Center frequency in Hz")
-	rate := flag.Uint("rate", defaultSampleRate, "Sample rate in Hz")
-	flag.IntVar(&config.Gain, "gain", defaultGain, "Tuner gain in tenths of dB (-1 for auto)")
-	flag.IntVar(&config.PPMCorrection, "ppm", 0, "PPM frequency correction")
-	flag.BoolVar(&config.EnableAGC, "agc", true, "Enable RTL2832 AGC")
-	flag.BoolVar(&config.EnableBiasTee, "bias-tee", false, "Enable bias tee")
-
-	// Input source
-	flag.StringVar(&config.InputFile, "infile", "", "Read samples from file")
-	flag.StringVar(&config.Filename, "filename", "", "Read samples from file (alias)")
-
-	// Network output settings
-	flag.IntVar(&config.HTTPPort, "http-port", defaultHTTPPort, "HTTP server port")
-	flag.IntVar(&config.BeastOutPort, "beast-out-port", defaultBeastOutPort, "Beast output port")
-	flag.IntVar(&config.AVROutPort, "avr-out-port", defaultAVROutPort, "AVR output port")
-	flag.IntVar(&config.SBSPort, "sbs-port", defaultSBSPort, "SBS output port")
-	flag.IntVar(&config.FATSVPort, "fatsv-port", defaultFATSVPort, "FATSV output port")
-	flag.BoolVar(&config.DisableHTTP, "no-http", false, "Disable HTTP server")
-	flag.BoolVar(&config.DisableBeast, "no-beast-out", false, "Disable Beast output")
-	flag.BoolVar(&config.DisableAVR, "no-avr-out", false, "Disable AVR output")
-	flag.BoolVar(&config.DisableSBS, "no-sbs", false, "Disable SBS output")
-	flag.BoolVar(&config.DisableFATSV, "no-fatsv", false, "Disable FATSV output")
-
-	// Network input settings
-	flag.IntVar(&config.RawInPort, "raw-in-port", defaultRawInPort, "Raw/AVR input port")
-	flag.IntVar(&config.BeastInPort, "beast-in-port", defaultBeastInPort, "Beast input port")
-	flag.BoolVar(&config.DisableRawIn, "no-raw-in", false, "Disable raw input")
-	flag.BoolVar(&config.DisableBeastIn, "no-beast-in", false, "Disable Beast input")
-
-	// Network bind address
-	flag.StringVar(&config.NetBindAddress, "net-bind-address", "", "Network bind address (empty for all interfaces)")
-
-	// Receiver location
-	flag.Float64Var(&config.Latitude, "lat", 0, "Receiver latitude")
-	flag.Float64Var(&config.Longitude, "lon", 0, "Receiver longitude")
-	flag.Float64Var(&config.MaxRange, "max-range", 300, "Maximum range in nautical miles")
-
-	// Output control (matching C version dump1090-mutability)
-	flag.BoolVar(&config.Quiet, "quiet", false, "Suppress all output except errors")
-	flag.BoolVar(&config.Raw, "raw", false, "Output only raw messages (*HEXDATA;)")
-	flag.BoolVar(&config.OnlyAddr, "onlyaddr", false, "Output only ICAO addresses, one per line")
-	flag.BoolVar(&config.MLAT, "mlat", false, "Include MLAT timestamp in raw output (@TIMESTAMP*HEXDATA;)")
-	showOnly := flag.Uint("show-only", 0, "Only show messages from this ICAO address (hex)")
-
-	// Statistics output (matching C version)
-	flag.BoolVar(&config.Stats, "stats", false, "Enable periodic statistics display")
-	flag.IntVar(&config.StatsEvery, "stats-every", 0, "Display statistics every N seconds (implies --stats)")
-
-	// CRC error correction
-	flag.BoolVar(&config.FixCRC, "fix", false, "Fix single-bit CRC errors")
-	flag.BoolVar(&config.Aggressive, "aggressive", false, "Fix two-bit CRC errors (more aggressive)")
-	flag.BoolVar(&config.Metric, "metric", false, "Use metric units")
-
-	// Interactive mode
-	flag.BoolVar(&config.Interactive, "interactive", false, "Interactive mode with TTY display")
-	flag.IntVar(&config.InteractiveRows, "interactive-rows", 22, "Maximum number of rows in interactive mode")
-	flag.IntVar(&config.InteractiveTTL, "interactive-ttl", 60, "Display TTL in seconds for interactive mode")
-	flag.BoolVar(&config.RTL1090, "interactive-rtl1090", false, "Use RTL1090 display format")
-
-	// JSON file output
-	flag.StringVar(&config.WriteJSON, "write-json", "/run/dump1090-mutability", "Directory for JSON output files")
-	flag.Float64Var(&config.WriteJSONEvery, "write-json-every", 1.0, "Interval in seconds for aircraft.json")
-	flag.IntVar(&config.HistorySize, "history-size", 120, "Number of history snapshot files")
-	flag.IntVar(&config.HistoryInterval, "history-interval", 30, "Interval in seconds for history snapshots")
-	flag.IntVar(&config.LocationAccuracy, "json-location-accuracy", 0, "Location accuracy in JSON (0=none, 1=rough, 2=exact)")
-
-	// Net-only mode
-	flag.BoolVar(&config.NetOnly, "net-only", false, "Network only mode, no RTL-SDR device")
-
-	// Mode A/C demodulation
-	flag.BoolVar(&config.ModeAC, "modeac", false, "Enable Mode A/C demodulation (legacy transponders)")
-
-	flag.Parse()
-
-	config.Frequency = uint32(*freq)
-	config.SampleRate = uint32(*rate)
-	config.ShowOnly = uint32(*showOnly)
-
-	// If --stats-every is set, enable stats
-	if config.StatsEvery > 0 {
-		config.Stats = true
-	}
-
 	return config
-
 }
 
 func (app *App) processRTLSDR() error {

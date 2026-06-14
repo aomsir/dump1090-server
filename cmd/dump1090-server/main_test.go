@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"io"
 	"os"
 	"reflect"
 	"testing"
@@ -336,6 +337,7 @@ func TestBeastInPortFlagRejectsInvalid(t *testing.T) {
 			}()
 
 			flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+			flag.CommandLine.SetOutput(io.Discard)
 			os.Args = []string{"test", "--net", "--beast-in-port", tt.value}
 			_, err := ParseFlagsFromSet(flag.CommandLine, os.Args[1:])
 			if err == nil {
@@ -354,6 +356,7 @@ func TestBeastInPortFlagRejectsDuplicate(t *testing.T) {
 	}()
 
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	flag.CommandLine.SetOutput(io.Discard)
 	os.Args = []string{"test", "--net", "--beast-in-port", "30004,30004"}
 	_, err := ParseFlagsFromSet(flag.CommandLine, os.Args[1:])
 	if err == nil {

@@ -95,7 +95,8 @@ docker run -p 30002:30002 -p 30003:30003 -p 30005:30005 dump1090-server --net-on
 #### Input Sources
 ```
 --infile <file>       Read samples from file
---net-only            Network only mode (no RTL-SDR)
+--net                 Enable network services (HTTP, Beast, AVR, SBS, FATSV)
+--net-only            Network only mode, no RTL-SDR/file input (implies --net)
 ```
 
 #### Network Output
@@ -113,8 +114,9 @@ docker run -p 30002:30002 -p 30003:30003 -p 30005:30005 dump1090-server --net-on
 
 #### Network Input
 ```
---raw-in-port <N>     Raw/AVR input port (default: 30001)
---beast-in-port <N>   Beast input port (default: 30004)
+--raw-in-port <N>         Raw/AVR input port (default: 30001)
+--beast-in-port <ports>   Beast input port(s) (default: 30004,30104)
+                          Comma or whitespace separated list; 0 to disable
 ```
 
 #### Receiver Location

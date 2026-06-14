@@ -88,13 +88,10 @@ const (
 	asyncBufNum = 12
 	asyncBufLen = 256 * 1024 // 256K samples per buffer
 
-	// Preamble and message sizes (in samples at 2.4MHz)
-	preambleSamples = 16  // 8us * 2 samples/us
-	longMsgSamples  = 240 // 112 bits * 12/5 samples/bit
-	// overlapSamples must cover the full preamble + longest message so the
+	// overlapSamples must cover preamble + longest Mode S message so the
 	// demodulator can decode messages that straddle buffer boundaries.
-	// The demod needs 19 preamble samples + 112*12/5 = 268 data samples = 287.
-	// Add margin for phase offset.
+	// The demod loop needs 19 preamble samples + 112*12/5 = 268 data
+	// samples = 287 total; 300 adds margin for phase offset.
 	overlapSamples = 300
 )
 

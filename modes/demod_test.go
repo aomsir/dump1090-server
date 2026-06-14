@@ -269,32 +269,6 @@ func TestTimestampFromSampleOffset(t *testing.T) {
 	}
 }
 
-func TestDemodTimestampUses12MHzTicks(t *testing.T) {
-	ModesChecksumInit(2)
-	d := NewDemodulator()
-
-	base := time.Unix(100, 0)
-	mag := &MagBuf{
-		SysTimestamp:    base,
-		SampleTimestamp: 1200,
-		Data:            make([]uint16, 400),
-		Length:          400,
-	}
-
-	var capturedTimestamp time.Time
-	d.SetMessageHandler(func(mm *Message) {
-		capturedTimestamp = mm.SysTimestamp
-	})
-
-	d.Demodulate2400(mag)
-
-	// If a message was captured, verify the timestamp uses the helper (12 ticks = 1µs)
-	// This is a structural test: the timestamp should be base + offset/12 µs
-	// Not testing exact decode since we don't have a real signal, just verifying
-	// the helper is wired up by checking the function exists and works.
-	_ = capturedTimestamp
-}
-
 func BenchmarkSlicePhase0(b *testing.B) {
 	m := []uint16{1000, 500, 100, 50}
 	b.ResetTimer()

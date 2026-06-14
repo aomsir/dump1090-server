@@ -63,7 +63,11 @@ func EncodeBeast(mm *Message) []byte {
 	}
 
 	// Timestamp (6 bytes, big-endian) with escaping
-	ts := mm.Timestamp
+	// Use TimestampMsg if set (for MLAT messages), otherwise use Timestamp
+	ts := mm.TimestampMsg
+	if ts == 0 {
+		ts = mm.Timestamp
+	}
 	buf = appendBeastByte(buf, byte(ts>>40))
 	buf = appendBeastByte(buf, byte(ts>>32))
 	buf = appendBeastByte(buf, byte(ts>>24))
@@ -134,6 +138,21 @@ func DecodeBeast(data []byte) (*Message, []byte, error) {
 		msgLen = MODES_LONG_MSG_BYTES
 	default:
 		return nil, data[2:], fmt.Errorf("unknown beast type: %c", msgType)
+	}
+
+	// Handle heartbeat (type 1 with all zeros after type byte)
+	if msgType == BeastTypeModeAC {
+		isHeartbeat := true
+		for i := 2; i < 11 && i < len(data); i++ {
+			if data[i] != 0 {
+				isHeartbeat = false
+				break
+			}
+		}
+		if isHeartbeat {
+			// Heartbeat: return nil message, consume the heartbeat bytes
+			return nil, data[11:], nil
+		}
 	}
 
 	// Unescape and extract timestamp + signal + message
@@ -387,7 +406,8 @@ func GenerateReceiverJSON(version string, refreshInterval float64, historySize i
 // AVR format encoding
 
 // EncodeAVR encodes a message in AVR format (ASCII hex with optional timestamp).
-// Format: *HEXMSG; or @TIMESTAMP*HEXMSG;
+// Format: *HEXMSG; or @TIMESTAMPHEXMSG;
+// Note: Timed format does NOT include * after timestamp (matching upstream format)
 func EncodeAVR(mm *Message, includeTimestamp bool) string {
 	if mm == nil {
 		return ""
@@ -401,13 +421,13 @@ func EncodeAVR(mm *Message, includeTimestamp bool) string {
 	var buf bytes.Buffer
 
 	if includeTimestamp {
-		// @TIMESTAMP*HEXMSG;
+		// @TIMESTAMPHEXMSG; (no * after timestamp)
 		buf.WriteByte('@')
 		// Timestamp in hex (12 characters for 48-bit timestamp)
 		fmt.Fprintf(&buf, "%012X", mm.Timestamp&0xFFFFFFFFFFFF)
 	}
 
-	buf.WriteByte('*')
+	// No * separator before hex data
 	for i := 0; i < msgLen; i++ {
 		fmt.Fprintf(&buf, "%02X", mm.Msg[i])
 	}

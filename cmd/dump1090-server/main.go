@@ -940,74 +940,16 @@ func (app *App) decodeRawMessage(line string) *modes.Message {
 		return nil
 	}
 
-	// Remove trailing semicolon if present
-	if line[len(line)-1] == ';' {
-		line = line[:len(line)-1]
+	// Use the new ParseRawAVR function from modes package
+	mm, err := modes.ParseRawAVR(line, app.config.ModeAC)
+	if err != nil {
+		return nil
 	}
-
-	var hexData string
-	var signalLevel float64
-
-	switch line[0] {
-	case '*', ':':
-		// Simple format: *HEXDATA or :HEXDATA
-		hexData = line[1:]
-
-	case '@', '%':
-		// Timestamp format: @TIMESTAMP*HEXDATA or %TIMESTAMP*HEXDATA
-		// Timestamp is 12 hex chars
-		if len(line) < 14 {
-			return nil
-		}
-		// Find the * separator
-		starIdx := -1
-		for i := 13; i < len(line); i++ {
-			if line[i] == '*' {
-				starIdx = i
-				break
-			}
-		}
-		if starIdx < 0 {
-			return nil
-		}
-		hexData = line[starIdx+1:]
-
-	case '<':
-		// Beast AVR format: <TIMESTAMP+SIGNAL*HEXDATA
-		// 12 hex timestamp + 2 hex signal = 14 chars after <
-		if len(line) < 16 {
-			return nil
-		}
-		// Parse signal level (2 hex chars at position 13-14)
-		sig, err := parseHexByte(line[13:15])
-		if err == nil {
-			signalLevel = float64(sig) / 255.0
-			signalLevel = signalLevel * signalLevel
-		}
-		hexData = line[15:]
-
-	default:
+	if mm == nil {
 		return nil
 	}
 
-	// Decode hex data
-	msgBytes, err := decodeHex(hexData)
-	if err != nil || len(msgBytes) == 0 {
-		return nil
-	}
-
-	// Validate message length
-	if len(msgBytes) != 7 && len(msgBytes) != 14 {
-		return nil
-	}
-
-	// Decode the message
-	mm, result := modes.DecodeModesMessage(msgBytes)
-	if result < 0 {
-		return nil
-	}
-
-	mm.SignalLevel = signalLevel
+	// Set Remote flag for network input
 	mm.Remote = true
 
 	return mm
@@ -1073,7 +1015,7 @@ func (app *App) handleBeastInputConnection(conn net.Conn) {
 
 		// Process complete Beast messages
 		for len(buffer) > 0 {
-			mm, remaining, err := modes.DecodeBeast(buffer)
+			mm, remaining, err := modes.DecodeBeastWithConfig(buffer, app.config.ModeAC)
 			if err != nil {
 				// Not enough data or invalid, try to find next escape byte
 				if len(buffer) > 1 {
@@ -1094,7 +1036,7 @@ func (app *App) handleBeastInputConnection(conn net.Conn) {
 
 			buffer = remaining
 			if mm != nil {
-				mm.Remote = true
+				// Remote flag is already set by DecodeBeastWithConfig
 				app.handleMessage(mm)
 			}
 		}

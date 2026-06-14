@@ -221,6 +221,35 @@ func TestDecodeCommBUsesKnownICAOFilter(t *testing.T) {
 	}
 }
 
+func TestDecodeWithConfigSetsMLATSource(t *testing.T) {
+	ModesChecksumInit(2)
+
+	// Valid DF17 message (ICAO 0x4840D6)
+	msg := mustDecodeHex("8D4840D6202CC371C32CE0576098")
+
+	cfg := DecodeConfig{
+		Remote:       true,
+		TimestampMsg: MAGIC_MLAT_TIMESTAMP,
+	}
+
+	mm, result := DecodeModesMessageWithConfig(msg, cfg)
+	if result != 0 {
+		t.Fatalf("decode failed: result %d", result)
+	}
+	if mm.MsgType != 17 {
+		t.Fatalf("got DF%d want DF17", mm.MsgType)
+	}
+	if mm.Source != SOURCE_MLAT {
+		t.Fatalf("got source %v want SOURCE_MLAT", mm.Source)
+	}
+	if !mm.Remote {
+		t.Fatal("expected Remote=true")
+	}
+	if mm.TimestampMsg != MAGIC_MLAT_TIMESTAMP {
+		t.Fatalf("got TimestampMsg 0x%012X want 0x%012X", mm.TimestampMsg, MAGIC_MLAT_TIMESTAMP)
+	}
+}
+
 func BenchmarkDecodeModesMessage(b *testing.B) {
 	ModesChecksumInit(2)
 

@@ -28,11 +28,15 @@ import (
 	"github.com/aomsir/dump1090-server/ui"
 )
 
-// NetworkClient wraps a connection with heartbeat tracking
+// NetworkClient wraps a connection with heartbeat tracking.
+// Close is idempotent: safe to call from concurrent Broadcast and
+// sendHeartbeats goroutines that may both observe a write failure.
 type NetworkClient struct {
 	conn      net.Conn
 	lastWrite time.Time
 	mu        sync.Mutex
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func newNetworkClient(conn net.Conn) *NetworkClient {
@@ -55,7 +59,10 @@ func (nc *NetworkClient) Write(data []byte) (int, error) {
 }
 
 func (nc *NetworkClient) Close() error {
-	return nc.conn.Close()
+	nc.closeOnce.Do(func() {
+		nc.closeErr = nc.conn.Close()
+	})
+	return nc.closeErr
 }
 
 func (nc *NetworkClient) shouldSendHeartbeat(interval time.Duration) bool {
@@ -80,9 +87,8 @@ const (
 	// Network input ports
 	defaultRawInPort = 30001
 
-	// Heartbeat interval (matching C version)
-	heartbeatInterval         = 60 * time.Second
-	defaultHeartbeatInterval  = 60 * time.Second
+	// Default heartbeat interval (matching C version)
+	defaultHeartbeatInterval = 60 * time.Second
 
 	// Buffer sizes
 	asyncBufNum = 12

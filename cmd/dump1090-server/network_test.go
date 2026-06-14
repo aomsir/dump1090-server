@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net"
+	"sync"
 	"testing"
 	"time"
 )
@@ -123,5 +124,63 @@ func TestDisabledPortDoesNotListen(t *testing.T) {
 		if isPortDisabled(port) {
 			t.Errorf("isPortDisabled(%d) = true, want false", port)
 		}
+	}
+}
+
+func TestNetworkClientCloseIsIdempotent(t *testing.T) {
+	// Close must be safe to call concurrently from Broadcast and
+	// sendHeartbeats when both observe a write failure on the same client.
+	server, client := net.Pipe()
+	defer client.Close()
+
+	nc := newNetworkClient(server)
+
+	// Hammer Close from many goroutines simultaneously.
+	var wg sync.WaitGroup
+	const goroutines = 20
+	errs := make([]error, goroutines)
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			errs[idx] = nc.Close()
+		}(i)
+	}
+	wg.Wait()
+
+	// Every call must return the same result (all nil, since first close wins).
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("Close() goroutine %d returned error: %v", i, err)
+		}
+	}
+
+	// A second round of closes after the first completed must also be safe.
+	for i := 0; i < 5; i++ {
+		if err := nc.Close(); err != nil {
+			t.Errorf("post-close Close() call %d returned error: %v", i, err)
+		}
+	}
+}
+
+func TestCloseAllRemovesAllClients(t *testing.T) {
+	svc := newNetworkService("test")
+
+	s1, c1 := net.Pipe()
+	defer c1.Close()
+	s2, c2 := net.Pipe()
+	defer c2.Close()
+
+	svc.Add("a", newNetworkClient(s1))
+	svc.Add("b", newNetworkClient(s2))
+
+	if got := svc.ClientCount(); got != 2 {
+		t.Fatalf("expected 2 clients, got %d", got)
+	}
+
+	svc.CloseAll()
+
+	if got := svc.ClientCount(); got != 0 {
+		t.Fatalf("expected 0 clients after CloseAll, got %d", got)
 	}
 }

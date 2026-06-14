@@ -33,6 +33,15 @@ func (svc *NetworkService) Remove(id string) {
 	}
 }
 
+// CloseAll closes and unregisters every client. Call on server shutdown.
+func (svc *NetworkService) CloseAll() {
+	svc.clients.Range(func(key, value any) bool {
+		value.(*NetworkClient).Close()
+		svc.clients.Delete(key)
+		return true
+	})
+}
+
 // ClientCount returns the number of registered clients.
 func (svc *NetworkService) ClientCount() int {
 	n := 0
@@ -84,6 +93,7 @@ func isPortDisabled(port int) bool {
 // connections are kept until context cancellation or write failure.
 func (app *App) runOutputTCPServer(svc *NetworkService, port int) {
 	defer app.wg.Done()
+	defer svc.CloseAll()
 
 	if isPortDisabled(port) {
 		return
@@ -119,12 +129,5 @@ func (app *App) runOutputTCPServer(svc *NetworkService, port int) {
 		clientID := conn.RemoteAddr().String()
 		client := newNetworkClient(conn)
 		svc.Add(clientID, client)
-
-		// Output client goroutine: keep connection alive until context
-		// cancellation. No read loop—client is a passive reader.
-		go func(id string) {
-			<-app.ctx.Done()
-			svc.Remove(id)
-		}(clientID)
 	}
 }

@@ -41,3 +41,7 @@ Thumbs.db
 *.pprof
 cpu.prof
 mem.prof
+mem.prof
+
+# Worktrees
+.worktrees/

@@ -58,6 +58,27 @@ func (pl PortList) String() string {
 	return strings.Join(parts, ",")
 }
 
+// portListValue implements flag.Value for PortList flags.
+type portListValue struct {
+	target *PortList
+}
+
+func (v portListValue) String() string {
+	if v.target == nil {
+		return ""
+	}
+	return v.target.String()
+}
+
+func (v portListValue) Set(s string) error {
+	pl, err := ParsePortList(s)
+	if err != nil {
+		return err
+	}
+	*v.target = pl
+	return nil
+}
+
 // NetworkServicesEnabled reports whether the config requests any network
 // listeners to start. This is the runtime gate: without --net or --net-only,
 // no HTTP/raw/beast/SBS/FATSV listeners are started regardless of individual
@@ -132,6 +153,7 @@ func ParseFlagsFromSet(fs *flag.FlagSet, args []string) (*Config, error) {
 
 	// Network input settings
 	fs.IntVar(&config.RawInPort, "raw-in-port", defaultRawInPort, "Raw/AVR input port")
+	fs.Var(portListValue{target: &config.BeastInPorts}, "beast-in-port", "Beast input port(s), comma/whitespace list (0 to disable)")
 	fs.BoolVar(&config.DisableRawIn, "no-raw-in", false, "Disable raw input")
 	fs.BoolVar(&config.DisableBeastIn, "no-beast-in", false, "Disable Beast input")
 

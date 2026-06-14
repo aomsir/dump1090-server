@@ -78,8 +78,7 @@ const (
 	defaultFATSVPort    = 10001
 
 	// Network input ports
-	defaultRawInPort   = 30001
-	defaultBeastInPort = 30004
+	defaultRawInPort = 30001
 
 	// Heartbeat interval (matching C version)
 	heartbeatInterval = 60 * time.Second
@@ -123,8 +122,7 @@ type Config struct {
 
 	// Network input settings
 	RawInPort      int
-	BeastInPort    int
-	BeastInPorts   PortList // multiple Beast input ports (default 30004,30104)
+	BeastInPorts   PortList // Beast input ports (default 30004,30104)
 	DisableRawIn   bool
 	DisableBeastIn bool
 
@@ -330,12 +328,7 @@ func main() {
 		}
 		if !config.DisableBeastIn {
 			// Start a Beast input listener for each port in BeastInPorts.
-			beastPorts := config.BeastInPorts
-			if len(beastPorts) == 0 {
-				// Fallback to single BeastInPort if BeastInPorts is empty.
-				beastPorts = PortList{config.BeastInPort}
-			}
-			for _, port := range beastPorts {
+			for _, port := range config.BeastInPorts {
 				app.wg.Add(1)
 				go app.runBeastInputServerOnPort(port)
 			}
@@ -1121,12 +1114,6 @@ func (app *App) decodeRawMessage(line string) *modes.Message {
 	mm.Remote = true
 
 	return mm
-}
-
-// runBeastInputServer listens for Beast format messages on the default port.
-// Retained for backward compatibility; prefer runBeastInputServerOnPort.
-func (app *App) runBeastInputServer() {
-	app.runBeastInputServerOnPort(app.config.BeastInPort)
 }
 
 // runBeastInputServerOnPort listens for Beast format messages on the given port.

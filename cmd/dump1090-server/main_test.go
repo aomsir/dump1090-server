@@ -212,3 +212,97 @@ func TestNetWithIndividualDisableKeepsSomeListeners(t *testing.T) {
 		t.Error("--no-sbs should set DisableSBS")
 	}
 }
+
+func TestBeastInPortFlagSinglePort(t *testing.T) {
+	origArgs := os.Args
+	origCommandLine := flag.CommandLine
+	defer func() {
+		os.Args = origArgs
+		flag.CommandLine = origCommandLine
+	}()
+
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	os.Args = []string{"test", "--net", "--beast-in-port", "30004"}
+	config, err := ParseFlagsFromSet(flag.CommandLine, os.Args[1:])
+	if err != nil {
+		t.Fatalf("ParseFlagsFromSet returned error: %v", err)
+	}
+
+	if !reflect.DeepEqual(config.BeastInPorts, PortList{30004}) {
+		t.Errorf("BeastInPorts with --beast-in-port 30004 = %v, want [30004]", config.BeastInPorts)
+	}
+}
+
+func TestBeastInPortFlagMultiplePorts(t *testing.T) {
+	origArgs := os.Args
+	origCommandLine := flag.CommandLine
+	defer func() {
+		os.Args = origArgs
+		flag.CommandLine = origCommandLine
+	}()
+
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	os.Args = []string{"test", "--net", "--beast-in-port", "30004,30104"}
+	config, err := ParseFlagsFromSet(flag.CommandLine, os.Args[1:])
+	if err != nil {
+		t.Fatalf("ParseFlagsFromSet returned error: %v", err)
+	}
+
+	if !reflect.DeepEqual(config.BeastInPorts, PortList{30004, 30104}) {
+		t.Errorf("BeastInPorts with --beast-in-port 30004,30104 = %v, want [30004 30104]", config.BeastInPorts)
+	}
+}
+
+func TestBeastInPortFlagZeroDisables(t *testing.T) {
+	origArgs := os.Args
+	origCommandLine := flag.CommandLine
+	defer func() {
+		os.Args = origArgs
+		flag.CommandLine = origCommandLine
+	}()
+
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	os.Args = []string{"test", "--net", "--beast-in-port", "0"}
+	config, err := ParseFlagsFromSet(flag.CommandLine, os.Args[1:])
+	if err != nil {
+		t.Fatalf("ParseFlagsFromSet returned error: %v", err)
+	}
+
+	if len(config.BeastInPorts) != 0 {
+		t.Errorf("BeastInPorts with --beast-in-port 0 = %v, want empty", config.BeastInPorts)
+	}
+	// Runtime should not start any Beast input listener for port 0.
+	for _, p := range config.BeastInPorts {
+		if p == 0 {
+			t.Error("BeastInPorts should not contain port 0")
+		}
+	}
+}
+
+func TestBeastInPortDefaultWhenFlagAbsent(t *testing.T) {
+	origArgs := os.Args
+	origCommandLine := flag.CommandLine
+	defer func() {
+		os.Args = origArgs
+		flag.CommandLine = origCommandLine
+	}()
+
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	os.Args = []string{"test", "--net"}
+	config, err := ParseFlagsFromSet(flag.CommandLine, os.Args[1:])
+	if err != nil {
+		t.Fatalf("ParseFlagsFromSet returned error: %v", err)
+	}
+
+	if !reflect.DeepEqual(config.BeastInPorts, PortList{30004, 30104}) {
+		t.Errorf("default BeastInPorts = %v, want [30004 30104]", config.BeastInPorts)
+	}
+}
+
+func TestDeadBeastInPortFieldRemoved(t *testing.T) {
+	config := DefaultConfig()
+	// BeastInPort (single int) should no longer exist; BeastInPorts is the source of truth.
+	if config.BeastInPorts == nil {
+		t.Error("BeastInPorts should be initialized in DefaultConfig")
+	}
+}

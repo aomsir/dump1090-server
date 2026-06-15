@@ -13,8 +13,6 @@ package rtlsdr
 
 /*
 #cgo pkg-config: librtlsdr
-#cgo CFLAGS: -I/usr/include -I/usr/local/include -I/opt/homebrew/include
-#cgo LDFLAGS: -L/usr/lib -L/usr/local/lib -L/opt/homebrew/lib -lrtlsdr
 
 #include <stdlib.h>
 #include <rtl-sdr.h>

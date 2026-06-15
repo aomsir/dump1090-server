@@ -27,6 +27,10 @@ go build -o bin/dump1090-server ./cmd/dump1090-server
 
 # Or build without CGO (network-only mode)
 CGO_ENABLED=0 go build -o bin/dump1090-server ./cmd/dump1090-server
+
+# Build companion utilities
+CGO_ENABLED=0 go build -o bin/view1090 ./cmd/view1090
+CGO_ENABLED=0 go build -o bin/faup1090 ./cmd/faup1090
 ```
 
 ### Dependencies
@@ -74,6 +78,65 @@ build with CGO enabled and run with `--privileged` or `--device` flags.
 # Interactive mode with statistics
 ./dump1090-server --interactive --stats
 ```
+
+### view1090
+
+Interactive aircraft display client that connects to a Beast TCP stream
+(typically dump1090-server port 30005) and shows a live table of tracked aircraft.
+
+```bash
+# Connect to local dump1090-server
+./view1090
+
+# Connect to remote Beast source
+./view1090 --beast 192.168.1.10:30005
+
+# Metric units, 30 display rows
+./view1090 --metric --interactive-rows 30
+
+# Filter to specific ICAO address
+./view1090 --show-only ABCDEF
+```
+
+**Flags:**
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--beast` | `127.0.0.1:30005` | Beast TCP input address (host:port) |
+| `--interactive-rows` | `22` | Number of display rows |
+| `--interactive-ttl` | `60` | Display TTL in seconds |
+| `--metric` | `false` | Use metric units |
+| `--modeac` | `false` | Enable Mode A/C decoding |
+| `--show-only` | | Only show this ICAO address (hex) |
+| `--quiet` | `false` | Suppress interactive display |
+| `--rtl1090` | `false` | Use RTL1090 display format |
+
+**Limitations:** Reconnects automatically on connection loss. Only supports Beast binary TCP input (not raw/AVR).
+
+### faup1090
+
+FlightAware uploader proxy that connects to a Beast TCP stream, decodes and
+tracks Mode S messages, and writes FlightAware TSV (FATSV) to stdout.
+
+```bash
+# Connect to local dump1090-server
+./faup1090
+
+# Connect to remote Beast source
+./faup1090 --beast 192.168.1.10:30005
+
+# Disable reconnect
+./faup1090 --reconnect 0
+```
+
+**Flags:**
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--beast` | `127.0.0.1:30005` | Beast TCP input address (host:port) |
+| `--reconnect` | `5` | Reconnect delay in seconds (0 to disable) |
+| `--modeac` | `false` | Enable Mode A/C decoding |
+| `--quiet` | `false` | Suppress stderr logging |
+
+**Limitations:** Outputs FATSV to stdout only. Does not forward to FlightAware directly — use with a downstream FA client.
 
 ### Network Ports
 

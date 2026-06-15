@@ -67,8 +67,9 @@ func ParseRawAVR(input string, modeAC bool) (*Message, error) {
 		}
 
 	case '<':
-		// Beast AVR format: <TIMESTAMP+SIGNAL*HEX or <TIMESTAMP+SIG*HEX
+		// Beast AVR format: <TIMESTAMP+SIGNAL*HEX
 		// 12 hex timestamp + 2 hex signal = 14 chars after <
+		// Requires * separator before hex data
 		if len(input) < 16 {
 			return nil, fmt.Errorf("too short for Beast AVR format")
 		}
@@ -86,15 +87,15 @@ func ParseRawAVR(input string, modeAC bool) (*Message, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid signal level: %v", err)
 		}
+		// Signal level is squared for backward compatibility with old main.go code
 		signalLevel = float64(sig) / 255.0
 		signalLevel = signalLevel * signalLevel
 
-		// Skip * separator if present
-		if len(input) > 15 && input[15] == '*' {
-			hexData = input[16:]
-		} else {
-			hexData = input[15:]
+		// Require * separator
+		if len(input) < 16 || input[15] != '*' {
+			return nil, fmt.Errorf("missing * separator in Beast AVR format")
 		}
+		hexData = input[16:]
 
 	default:
 		return nil, nil

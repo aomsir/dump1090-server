@@ -13,6 +13,27 @@ import (
 	"fmt"
 )
 
+// unescapeBeastPayload unescapes Beast binary payload data.
+// In Beast format, 0x1A bytes are doubled (escaped).
+// This function removes the duplicate 0x1A bytes.
+// Returns the unescaped bytes and the position in the original data.
+func unescapeBeastPayload(data []byte, want int) (raw []byte, pos int) {
+	raw = make([]byte, 0, want)
+	pos = 0
+	for len(raw) < want && pos < len(data) {
+		b := data[pos]
+		pos++
+		if b == BeastEscape && pos < len(data) {
+			// Skip the duplicate escape byte
+			if data[pos] == BeastEscape {
+				pos++
+			}
+		}
+		raw = append(raw, b)
+	}
+	return raw, pos
+}
+
 // DecodeBeastWithConfig decodes a Beast binary format message with configuration.
 // If modeAC is true, type 1 Mode A/C payloads are decoded.
 // Returns the message, remaining data, and any error.
@@ -42,15 +63,25 @@ func DecodeBeastWithConfig(data []byte, modeAC bool) (*Message, []byte, error) {
 		msgLen = MODES_SHORT_MSG_BYTES
 	case BeastTypeLong:
 		msgLen = MODES_LONG_MSG_BYTES
+	case BeastTypeStatus:
+		// Status messages are not decoded by this project.
+		// Skip conservatively: consume the type header (2 bytes) and return nil.
+		// We don't know exact status payload length, so we just skip the header
+		// and let the caller find the next escape byte.
+		return nil, data[2:], nil
 	default:
 		return nil, data[2:], fmt.Errorf("unknown beast type: %c", msgType)
 	}
 
-	// Handle heartbeat (type 1 with no payload)
-	if msgType == BeastTypeModeAC && msgLen == 2 {
-		// Check if this is a heartbeat (all zeros after type byte)
+	// Handle heartbeat detection.
+	// Heartbeat is defined as type 1 with all-zero timestamp/signal/message bytes.
+	// This matches BeastHeartbeatMessage() which returns:
+	//   {0x1A, '1', 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	// We check all 9 bytes after the type byte are zero to avoid misclassifying
+	// valid Mode A/C frames with zero timestamp but nonzero payload.
+	if msgType == BeastTypeModeAC {
 		isHeartbeat := true
-		for i := 2; i < len(data) && i < 11; i++ {
+		for i := 2; i < 11 && i < len(data); i++ {
 			if data[i] != 0 {
 				isHeartbeat = false
 				break
@@ -65,35 +96,13 @@ func DecodeBeastWithConfig(data []byte, modeAC bool) (*Message, []byte, error) {
 	// For Mode A/C messages, check if Mode A/C is enabled
 	if msgType == BeastTypeModeAC && !modeAC {
 		// Skip this message but still need to unescape to find the end
-		raw := make([]byte, 0, 7+msgLen)
-		pos := 2
-		for len(raw) < 7+msgLen && pos < len(data) {
-			b := data[pos]
-			pos++
-			if b == BeastEscape && pos < len(data) {
-				if data[pos] == BeastEscape {
-					pos++
-				}
-			}
-			raw = append(raw, b)
-		}
-		return nil, data[pos:], nil
+		_, pos := unescapeBeastPayload(data[2:], 7+msgLen)
+		return nil, data[2+pos:], nil
 	}
 
 	// Unescape and extract timestamp + signal + message
-	raw := make([]byte, 0, 7+msgLen)
-	pos := 2
-	for len(raw) < 7+msgLen && pos < len(data) {
-		b := data[pos]
-		pos++
-		if b == BeastEscape && pos < len(data) {
-			// Skip the duplicate escape
-			if data[pos] == BeastEscape {
-				pos++
-			}
-		}
-		raw = append(raw, b)
-	}
+	raw, pos := unescapeBeastPayload(data[2:], 7+msgLen)
+	pos += 2 // Adjust for type byte
 
 	if len(raw) < 7+msgLen {
 		return nil, data, fmt.Errorf("incomplete message data")

@@ -141,3 +141,62 @@ func TestDecodeBeastEscapedBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestDecodeBeastHeartbeatIsAllZeros(t *testing.T) {
+	// Heartbeat detection: type 1 with all-zero timestamp/signal/message bytes
+	// This matches BeastHeartbeatMessage() which returns all zeros after type byte
+	heartbeat := BeastHeartbeatMessage()
+
+	mm, remaining, err := DecodeBeast(heartbeat)
+	if err != nil {
+		t.Fatalf("DecodeBeast() heartbeat returned error: %v", err)
+	}
+	if mm != nil {
+		t.Errorf("Expected nil message for heartbeat, got %+v", mm)
+	}
+	if len(remaining) != 0 {
+		t.Errorf("Expected no remaining data, got %d bytes", len(remaining))
+	}
+}
+
+func TestDecodeBeastModeACWithZeroTimestampNonzeroPayload(t *testing.T) {
+	// Type 1 Mode A/C with zero timestamp but nonzero payload should NOT be heartbeat
+	// Frame: 0x1A, '1', 6 bytes zero timestamp, 1 byte signal, 2 bytes nonzero message
+	ModesChecksumInit(2)
+	msg := []byte{0x1A, '1', 0, 0, 0, 0, 0, 0, 0x80, 0x78, 0x01}
+
+	mm, _, err := DecodeBeastWithConfig(msg, true)
+	if err != nil {
+		t.Fatalf("DecodeBeastWithConfig() returned error: %v", err)
+	}
+	if mm == nil {
+		t.Fatal("Expected non-nil message for Mode A/C with nonzero payload")
+	}
+	if mm.MsgType != 32 {
+		t.Errorf("Expected MsgType=32 for Mode A/C, got %d", mm.MsgType)
+	}
+	// Verify it has nonzero payload (0x7801)
+	if mm.Msg[0] == 0 && mm.Msg[1] == 0 {
+		t.Error("Expected nonzero Mode A/C payload")
+	}
+}
+
+func TestDecodeBeastStatusTypeSkipped(t *testing.T) {
+	// Beast status type ('4') should be skipped without error
+	// Status message: 0x1A, '4', followed by status data
+	// We don't know exact status length, so we skip conservatively
+	status := []byte{0x1A, '4', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+
+	mm, remaining, err := DecodeBeast(status)
+	if err != nil {
+		t.Fatalf("DecodeBeast() status returned error: %v", err)
+	}
+	// Should return nil message (status not decoded)
+	if mm != nil {
+		t.Errorf("Expected nil message for status type, got %+v", mm)
+	}
+	// Should have consumed some bytes (at least the type header)
+	if len(remaining) >= len(status) {
+		t.Error("Expected status type to consume some bytes")
+	}
+}

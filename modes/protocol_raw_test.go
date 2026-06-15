@@ -112,10 +112,10 @@ func TestParseRawAVRModeACWhenEnabled(t *testing.T) {
 
 func TestParseRawAVRBeastAVRFormatWithSignal(t *testing.T) {
 	// <TIMESTAMP+SIGNAL*HEXDATA; format should be supported
-	// Format: < + 12 hex timestamp + 2 hex signal + HEXDATA + ;
-	// Example: <000000000001FF8D4840D6202CC371C32CE0576098;
+	// Format: < + 12 hex timestamp + 2 hex signal + * + HEXDATA + ;
+	// Example: <000000000001FF*8D4840D6202CC371C32CE0576098;
 	ModesChecksumInit(2)
-	input := "<000000000001FF8D4840D6202CC371C32CE0576098;"
+	input := "<000000000001FF*8D4840D6202CC371C32CE0576098;"
 	mm, err := ParseRawAVR(input, false)
 	if err != nil {
 		t.Fatalf("ParseRawAVR() failed: %v", err)
@@ -127,13 +127,44 @@ func TestParseRawAVRBeastAVRFormatWithSignal(t *testing.T) {
 	if mm.TimestampMsg != 1 {
 		t.Errorf("Expected TimestampMsg=1, got %d", mm.TimestampMsg)
 	}
-	// Verify signal level was parsed (0xFF = 255, normalized to ~1.0)
-	if mm.SignalLevel <= 0 {
-		t.Errorf("Expected positive SignalLevel, got %f", mm.SignalLevel)
+	// Verify signal level was parsed (0xFF = 255, normalized and squared)
+	// Signal level formula: (sig/255)^2 = (255/255)^2 = 1.0
+	if mm.SignalLevel != 1.0 {
+		t.Errorf("Expected SignalLevel=1.0, got %f", mm.SignalLevel)
 	}
 	// Verify message is valid DF17
 	if mm.MsgBits != 112 {
 		t.Errorf("Expected 112 bits, got %d", mm.MsgBits)
+	}
+}
+
+func TestParseRawAVRBeastAVRFormatRequiresStarSeparator(t *testing.T) {
+	// <TIMESTAMP+SIGNAL*HEXDATA; format should require * separator
+	// Without *, it should fail
+	input := "<000000000001FF8D4840D6202CC371C32CE0576098;"
+	_, err := ParseRawAVR(input, false)
+	if err == nil {
+		t.Error("Expected error for missing * separator in Beast AVR format")
+	}
+}
+
+func TestParseRawAVRSignalLevelSquared(t *testing.T) {
+	// Signal level should be squared (sig/255)^2 for backward compatibility
+	// This matches old behavior in main.go
+	ModesChecksumInit(2)
+	input := "<00000000000180*8D4840D6202CC371C32CE0576098;"
+	mm, err := ParseRawAVR(input, false)
+	if err != nil {
+		t.Fatalf("ParseRawAVR() failed: %v", err)
+	}
+	if mm == nil {
+		t.Fatal("ParseRawAVR() returned nil message")
+	}
+	// 0x80 = 128, (128/255)^2 ≈ 0.252
+	expectedSig := float64(128) / 255.0
+	expectedSig = expectedSig * expectedSig
+	if mm.SignalLevel < expectedSig-0.001 || mm.SignalLevel > expectedSig+0.001 {
+		t.Errorf("Expected SignalLevel≈%f, got %f", expectedSig, mm.SignalLevel)
 	}
 }
 

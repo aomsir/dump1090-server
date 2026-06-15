@@ -92,7 +92,7 @@ func ParseRawAVR(input string, modeAC bool) (*Message, error) {
 		signalLevel = signalLevel * signalLevel
 
 		// Require * separator
-		if len(input) < 16 || input[15] != '*' {
+		if input[15] != '*' {
 			return nil, fmt.Errorf("missing * separator in Beast AVR format")
 		}
 		hexData = input[16:]

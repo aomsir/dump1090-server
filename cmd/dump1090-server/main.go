@@ -932,7 +932,8 @@ func (app *App) handleRawInputConnection(conn net.Conn) {
 }
 
 // decodeRawMessage decodes AVR format messages
-// Supports formats: *HEXDATA; @TIMESTAMP*HEXDATA; @TIMESTAMPHEXDATA; <TIMESTAMP+SIG*HEXDATA;
+// Supports formats: *HEXDATA; @TIMESTAMP*HEXDATA; %TIMESTAMP*HEXDATA; <TIMESTAMP+SIG*HEXDATA;
+// Malformed raw network records are dropped silently to keep normal logs quiet.
 func (app *App) decodeRawMessage(line string) *modes.Message {
 	// Trim whitespace
 	line = trimSpace(line)
@@ -944,6 +945,7 @@ func (app *App) decodeRawMessage(line string) *modes.Message {
 	// Remote flag is set by ParseRawAVR for network input
 	mm, err := modes.ParseRawAVR(line, app.config.ModeAC)
 	if err != nil {
+		// Silently drop malformed records to keep normal logs quiet
 		return nil
 	}
 	if mm == nil {

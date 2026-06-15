@@ -182,14 +182,14 @@ func TestDecodeBeastModeACWithZeroTimestampNonzeroPayload(t *testing.T) {
 }
 
 func TestDecodeBeastStatusTypeSkipped(t *testing.T) {
-	// Beast status type ('4') should be skipped without error
+	// Beast status type ('4') should return error to signal caller to find next escape
 	// Status message: 0x1A, '4', followed by status data
-	// We don't know exact status length, so we skip conservatively
 	status := []byte{0x1A, '4', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
 	mm, remaining, err := DecodeBeast(status)
-	if err != nil {
-		t.Fatalf("DecodeBeast() status returned error: %v", err)
+	// Should return error to signal status skip
+	if err == nil {
+		t.Fatal("Expected error for status skip")
 	}
 	// Should return nil message (status not decoded)
 	if mm != nil {
@@ -198,5 +198,137 @@ func TestDecodeBeastStatusTypeSkipped(t *testing.T) {
 	// Should have consumed some bytes (at least the type header)
 	if len(remaining) >= len(status) {
 		t.Error("Expected status type to consume some bytes")
+	}
+}
+
+func TestDecodeBeastStatusFollowedByValidMessage(t *testing.T) {
+	// Status message followed by valid Beast message should recover correctly
+	// Status: 0x1A, '4', 10 bytes of status data
+	// Valid message: 0x1A, '3', 6 bytes timestamp, 1 byte signal, 14 bytes long message
+	ModesChecksumInit(2)
+
+	// Build status + valid message
+	statusPayload := []byte{0x1A, '4', 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A}
+	validMsg := &Message{
+		Msg:         [14]byte{0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3, 0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98},
+		MsgBits:     112,
+		Timestamp:   12345678,
+		SignalLevel: 0.5,
+	}
+	encodedValid := EncodeBeast(validMsg)
+	if encodedValid == nil {
+		t.Fatal("EncodeBeast() failed")
+	}
+
+	// Combine: status payload + valid message
+	combined := append(statusPayload, encodedValid...)
+
+	// First call should return error for status skip
+	mm, remaining, err := DecodeBeast(combined)
+	if err == nil {
+		t.Fatal("Expected error for status skip")
+	}
+	if mm != nil {
+		t.Errorf("Expected nil message for status skip, got %+v", mm)
+	}
+	if len(remaining) == 0 {
+		t.Fatal("Expected remaining data after status skip")
+	}
+
+	// Caller's loop will find next escape byte and call DecodeBeast again
+	// Find next escape in remaining data
+	nextEscape := -1
+	for i := 0; i < len(remaining); i++ {
+		if remaining[i] == 0x1A {
+			nextEscape = i
+			break
+		}
+	}
+	if nextEscape < 0 {
+		t.Fatal("Expected to find next escape byte in remaining data")
+	}
+
+	// Second call should decode the valid message
+	mm, remaining, err = DecodeBeast(remaining[nextEscape:])
+	if err != nil {
+		t.Fatalf("DecodeBeast() second call returned error: %v", err)
+	}
+	if mm == nil {
+		t.Fatal("Expected non-nil message for valid message")
+	}
+	if mm.MsgBits != 112 {
+		t.Errorf("Expected 112 bits, got %d", mm.MsgBits)
+	}
+	// Should have no remaining data
+	if len(remaining) != 0 {
+		t.Errorf("Expected no remaining data, got %d bytes", len(remaining))
+	}
+}
+
+func TestDecodeBeastStatusWithEscapeInPayload(t *testing.T) {
+	// Status payload containing 0x1A (escape-like byte) should not confuse parser
+	// The 0x1A in status payload is NOT a frame start, just data
+	// Status: 0x1A, '4', followed by payload with 0x1A bytes
+	// Then a valid message
+	ModesChecksumInit(2)
+
+	// Status with 0x1A in payload (not escaped, just raw data)
+	statusWithEscape := []byte{0x1A, '4', 0x1A, 0x00, 0x1A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	validMsg := &Message{
+		Msg:         [14]byte{0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3, 0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98},
+		MsgBits:     112,
+		Timestamp:   12345678,
+		SignalLevel: 0.5,
+	}
+	encodedValid := EncodeBeast(validMsg)
+	if encodedValid == nil {
+		t.Fatal("EncodeBeast() failed")
+	}
+
+	combined := append(statusWithEscape, encodedValid...)
+
+	// First call should return error for status skip
+	mm, remaining, err := DecodeBeast(combined)
+	if err == nil {
+		t.Fatal("Expected error for status skip")
+	}
+	if mm != nil {
+		t.Errorf("Expected nil message for status skip, got %+v", mm)
+	}
+	if len(remaining) == 0 {
+		t.Fatal("Expected remaining data after status skip")
+	}
+
+	// Caller's loop will find next escape byte and call DecodeBeast again
+	// Find next escape in remaining data that's followed by a valid type byte
+	// (skip escapes that are part of status payload)
+	nextEscape := -1
+	for i := 0; i < len(remaining)-1; i++ {
+		if remaining[i] == 0x1A {
+			nextType := remaining[i+1]
+			if nextType == '1' || nextType == '2' || nextType == '3' || nextType == '4' {
+				nextEscape = i
+				break
+			}
+		}
+	}
+	if nextEscape < 0 {
+		t.Fatal("Expected to find next escape byte in remaining data")
+	}
+
+	// Second call should decode the valid message
+	mm, remaining, err = DecodeBeast(remaining[nextEscape:])
+	if err != nil {
+		t.Fatalf("DecodeBeast() second call returned error: %v", err)
+	}
+	if mm == nil {
+		t.Fatal("Expected non-nil message for valid message")
+	}
+	if mm.MsgBits != 112 {
+		t.Errorf("Expected 112 bits, got %d", mm.MsgBits)
+	}
+	// Should have no remaining data
+	if len(remaining) != 0 {
+		t.Errorf("Expected no remaining data, got %d bytes", len(remaining))
 	}
 }

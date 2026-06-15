@@ -65,10 +65,11 @@ func DecodeBeastWithConfig(data []byte, modeAC bool) (*Message, []byte, error) {
 		msgLen = MODES_LONG_MSG_BYTES
 	case BeastTypeStatus:
 		// Status messages are not decoded by this project.
-		// Skip conservatively: consume the type header (2 bytes) and return nil.
-		// We don't know exact status payload length, so we just skip the header
-		// and let the caller find the next escape byte.
-		return nil, data[2:], nil
+		// We don't know the exact status payload length, so we return an error
+		// to signal the caller to find the next escape byte and try again.
+		// This is safe because the caller's loop handles errors by searching
+		// for the next escape byte and continuing parsing.
+		return nil, data[2:], fmt.Errorf("status message skipped")
 	default:
 		return nil, data[2:], fmt.Errorf("unknown beast type: %c", msgType)
 	}

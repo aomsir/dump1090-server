@@ -49,10 +49,12 @@ func convertSamples(converter *rtlsdr.ConverterState, iq []byte, mag []uint16, f
 // samplesPerByte returns the number of bytes per IQ sample pair for the given format.
 func samplesPerByte(format string) int {
 	switch format {
+	case "UC8":
+		return 2 // 1 byte I + 1 byte Q
 	case "SC16", "SC16Q11":
 		return 4 // 2 bytes I + 2 bytes Q
-	default: // UC8
-		return 2 // 1 byte I + 1 byte Q
+	default:
+		panic("samplesPerByte: unreachable format (config validation should reject): " + format)
 	}
 }
 

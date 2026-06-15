@@ -831,4 +831,33 @@ func TestSampleRateAllowedWithNetOnly(t *testing.T) {
 	}
 }
 
+func TestSamplesPerByte(t *testing.T) {
+	tests := []struct {
+		format string
+		want   int
+	}{
+		{"UC8", 2},
+		{"SC16", 4},
+		{"SC16Q11", 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.format, func(t *testing.T) {
+			got := samplesPerByte(tt.format)
+			if got != tt.want {
+				t.Errorf("samplesPerByte(%q) = %d, want %d", tt.format, got, tt.want)
+			}
+		})
+	}
+
+	// Verify panic on unreachable format
+	t.Run("unknown_panics", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("samplesPerByte with unknown format should panic")
+			}
+		}()
+		samplesPerByte("FLOAT32")
+	})
+}
+
 func float64Ptr(f float64) *float64 { return &f }

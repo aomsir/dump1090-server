@@ -23,7 +23,7 @@ type Tracker struct {
 	// Receiver location (for CPR decoding and range checks)
 	receiverLat    float64
 	receiverLon    float64
-	receiverLatLon bool // True if receiver location is valid
+	receiverLatLon bool    // True if receiver location is valid
 	maxRange       float64 // Maximum range in meters (0 = no limit)
 
 	// Statistics collector (optional)
@@ -107,14 +107,14 @@ func (t *Tracker) MarkFATSVEmitted(addr uint32, now uint64) {
 // formatting. These are persisted on the real tracked aircraft (not copies) so
 // that change detection works correctly on subsequent calls.
 type FATSVEmittedState struct {
-	Altitude      int
-	AltitudeGNSS  int
-	Heading       uint32
-	HeadingMag    uint32
-	Speed         uint32
-	SpeedIAS      uint32
-	SpeedTAS      uint32
-	AirGround     AirGround
+	Altitude     int
+	AltitudeGNSS int
+	Heading      uint32
+	HeadingMag   uint32
+	Speed        uint32
+	SpeedIAS     uint32
+	SpeedTAS     uint32
+	AirGround    AirGround
 }
 
 // MarkFATSVPeriodicEmitted updates all FATSV emitted fields on the real tracked
@@ -541,7 +541,7 @@ func acceptData(v *DataValidity, source DataSource, now uint64) bool {
 	// Accept and update validity
 	v.Source = source
 	v.Updated = now
-	v.Stale = now + 60000  // 60 seconds
+	v.Stale = now + 60000   // 60 seconds
 	v.Expires = now + 70000 // 70 seconds
 	return true
 }
@@ -641,7 +641,7 @@ func greatcircle(lat0, lon0, lat1, lon1 float64) float64 {
 	if dlat < 0.001 && dlon < 0.001 {
 		a := math.Sin(dlat/2)*math.Sin(dlat/2) +
 			math.Cos(lat0Rad)*math.Cos(lat1Rad)*
-			math.Sin(dlon/2)*math.Sin(dlon/2)
+				math.Sin(dlon/2)*math.Sin(dlon/2)
 		return 6371e3 * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1.0-a))
 	}
 

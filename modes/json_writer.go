@@ -43,9 +43,9 @@ type JSONWriter struct {
 	statsInterval   int    // Interval for stats.json in milliseconds
 
 	// Receiver location (for receiver.json)
-	receiverLat         float64
-	receiverLon         float64
-	locationAccuracy    int  // 0=none, 1=rough (2dp), 2=exact
+	receiverLat      float64
+	receiverLon      float64
+	locationAccuracy int // 0=none, 1=rough (2dp), 2=exact
 
 	// State
 	history         []HistoryEntry
@@ -64,15 +64,15 @@ type JSONWriter struct {
 
 // JSONWriterConfig holds configuration for JSONWriter
 type JSONWriterConfig struct {
-	Dir             string
-	JSONInterval    int // milliseconds, 0 = use default (1000)
-	HistorySize     int // 0 = use default (120)
-	HistoryInterval int // milliseconds, 0 = use default (30000)
-	StatsInterval   int // milliseconds, 0 = use default (60000)
-	ReceiverLat     float64
-	ReceiverLon     float64
+	Dir              string
+	JSONInterval     int // milliseconds, 0 = use default (1000)
+	HistorySize      int // 0 = use default (120)
+	HistoryInterval  int // milliseconds, 0 = use default (30000)
+	StatsInterval    int // milliseconds, 0 = use default (60000)
+	ReceiverLat      float64
+	ReceiverLon      float64
 	LocationAccuracy int // 0=none, 1=rough, 2=exact
-	Version         string
+	Version          string
 }
 
 // NewJSONWriter creates a new JSON file writer
@@ -382,12 +382,12 @@ func formatStatsBlock(s *Stats, includeLocal bool) []byte {
 		// Signal/noise levels (in dBFS)
 		if s.SignalPowerCount > 0 {
 			avgSignal := s.SignalPowerSum / float64(s.SignalPowerCount)
-			signalDB := 10 * math.Log10(avgSignal + 1e-10)
+			signalDB := 10 * math.Log10(avgSignal+1e-10)
 			buf = append(buf, fmt.Sprintf(",\n      \"signal\" : %.1f", signalDB)...)
 		}
 		if s.NoisePowerCount > 0 {
 			avgNoise := s.NoisePowerSum / float64(s.NoisePowerCount)
-			noiseDB := 10 * math.Log10(avgNoise + 1e-10)
+			noiseDB := 10 * math.Log10(avgNoise+1e-10)
 			buf = append(buf, fmt.Sprintf(",\n      \"noise\" : %.1f", noiseDB)...)
 		}
 		if s.PeakSignalPower > 0 {

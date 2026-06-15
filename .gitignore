@@ -5,14 +5,6 @@
 *.so
 *.dylib
 
-# C build artifacts (dump1090-libs/)
-dump1090-libs/*.o
-dump1090-libs/dump1090
-dump1090-libs/view1090
-dump1090-libs/faup1090
-dump1090-libs/cprtests
-dump1090-libs/crctest
-
 # Test binary
 *.test
 
@@ -40,7 +32,6 @@ Thumbs.db
 # Debug
 *.pprof
 cpu.prof
-mem.prof
 mem.prof
 
 # Worktrees

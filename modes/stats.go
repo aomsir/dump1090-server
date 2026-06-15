@@ -16,7 +16,6 @@ import (
 	"time"
 )
 
-
 const (
 	// STATS_HISTORY_SIZE is the number of 1-minute periods to keep
 	STATS_HISTORY_SIZE = 15
@@ -31,10 +30,10 @@ type Stats struct {
 	End   uint64 // Unix milliseconds
 
 	// Mode S demodulator counts
-	DemodPreambles            uint32
-	DemodRejectedBad          uint32
-	DemodRejectedUnknownICAO  uint32
-	DemodAccepted             [MODES_MAX_BITERRORS + 1]uint32
+	DemodPreambles           uint32
+	DemodRejectedBad         uint32
+	DemodRejectedUnknownICAO uint32
+	DemodAccepted            [MODES_MAX_BITERRORS + 1]uint32
 
 	// Mode A/C counts
 	DemodModeAC uint32
@@ -53,40 +52,40 @@ type Stats struct {
 	NoisePowerCount uint64
 
 	// Signal power statistics
-	SignalPowerSum   float64
-	SignalPowerCount uint64
-	PeakSignalPower  float64
+	SignalPowerSum    float64
+	SignalPowerCount  uint64
+	PeakSignalPower   float64
 	StrongSignalCount uint32 // Count of signals > -3dBFS
 
 	// Remote message counts
-	RemoteReceivedModeAC     uint32
-	RemoteReceivedModes      uint32
-	RemoteRejectedBad        uint32
+	RemoteReceivedModeAC      uint32
+	RemoteReceivedModes       uint32
+	RemoteRejectedBad         uint32
 	RemoteRejectedUnknownICAO uint32
-	RemoteAccepted           [MODES_MAX_BITERRORS + 1]uint32
+	RemoteAccepted            [MODES_MAX_BITERRORS + 1]uint32
 
 	// Total messages
 	MessagesTotal uint32
 
 	// CPR decoding statistics
-	CPRSurface                uint32
-	CPRAirborne               uint32
-	CPRGlobalOK               uint32
-	CPRGlobalBad              uint32
-	CPRGlobalRangeChecks      uint32
-	CPRGlobalSpeedChecks      uint32
-	CPRGlobalSkipped          uint32
-	CPRLocalOK                uint32
-	CPRLocalAircraftRelative  uint32
-	CPRLocalReceiverRelative  uint32
-	CPRLocalSkipped           uint32
-	CPRLocalRangeChecks       uint32
-	CPRLocalSpeedChecks       uint32
-	CPRFiltered               uint32
+	CPRSurface               uint32
+	CPRAirborne              uint32
+	CPRGlobalOK              uint32
+	CPRGlobalBad             uint32
+	CPRGlobalRangeChecks     uint32
+	CPRGlobalSpeedChecks     uint32
+	CPRGlobalSkipped         uint32
+	CPRLocalOK               uint32
+	CPRLocalAircraftRelative uint32
+	CPRLocalReceiverRelative uint32
+	CPRLocalSkipped          uint32
+	CPRLocalRangeChecks      uint32
+	CPRLocalSpeedChecks      uint32
+	CPRFiltered              uint32
 
 	// Aircraft tracking
-	UniqueAircraft           uint32
-	SingleMessageAircraft    uint32
+	UniqueAircraft             uint32
+	SingleMessageAircraft      uint32
 	SuppressedAltitudeMessages uint32
 
 	// Range histogram (76 buckets, 10NM each = 0-750NM)
@@ -101,8 +100,8 @@ type StatsCollector struct {
 	current Stats
 
 	// 15 x 1-minute circular buffer
-	history      [STATS_HISTORY_SIZE]Stats
-	latestIndex  int // Index of the most recent complete 1-minute period
+	history     [STATS_HISTORY_SIZE]Stats
+	latestIndex int // Index of the most recent complete 1-minute period
 
 	// Aggregated statistics
 	last5Min  Stats // Aggregated from last 5 x 1min
@@ -691,4 +690,3 @@ func DisplayRangeHistogram(st *Stats, w io.Writer, maxRange float64) {
 	}
 	fmt.Fprintln(w, "km")
 }
-

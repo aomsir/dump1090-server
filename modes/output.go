@@ -18,12 +18,12 @@ import (
 
 // Beast binary format constants
 const (
-	BeastEscape       = 0x1A
-	BeastTypeModeAC   = '1' // 2-byte Mode A/C
-	BeastTypeShort    = '2' // 7-byte short message
-	BeastTypeLong     = '3' // 14-byte long message
-	BeastTypeStatus   = '4' // Status message (radarcape)
-	BeastHeartbeat    = '1' // Same as Mode A/C but with no payload
+	BeastEscape     = 0x1A
+	BeastTypeModeAC = '1' // 2-byte Mode A/C
+	BeastTypeShort  = '2' // 7-byte short message
+	BeastTypeLong   = '3' // 14-byte long message
+	BeastTypeStatus = '4' // Status message (radarcape)
+	BeastHeartbeat  = '1' // Same as Mode A/C but with no payload
 )
 
 // EncodeBeast encodes a message in Beast binary format.
@@ -301,11 +301,11 @@ func MarshalAircraftJSON(tracker *Tracker, totalMessages uint64) ([]byte, error)
 
 // ReceiverJSON represents the receiver status JSON.
 type ReceiverJSON struct {
-	Version  string  `json:"version"`
-	Refresh  float64 `json:"refresh"`
-	History  int     `json:"history"`
-	Lat      float64 `json:"lat,omitempty"`
-	Lon      float64 `json:"lon,omitempty"`
+	Version string  `json:"version"`
+	Refresh float64 `json:"refresh"`
+	History int     `json:"history"`
+	Lat     float64 `json:"lat,omitempty"`
+	Lon     float64 `json:"lon,omitempty"`
 }
 
 // GenerateReceiverJSON generates the receiver status JSON.

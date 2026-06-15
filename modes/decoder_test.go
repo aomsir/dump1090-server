@@ -10,15 +10,15 @@ func TestModesMessageLenByType(t *testing.T) {
 		dfType int
 		want   int
 	}{
-		{0, MODES_SHORT_MSG_BITS},   // DF0
-		{4, MODES_SHORT_MSG_BITS},   // DF4
-		{11, MODES_SHORT_MSG_BITS},  // DF11
-		{15, MODES_SHORT_MSG_BITS},  // DF15
-		{16, MODES_LONG_MSG_BITS},   // DF16
-		{17, MODES_LONG_MSG_BITS},   // DF17
-		{18, MODES_LONG_MSG_BITS},   // DF18
-		{24, MODES_LONG_MSG_BITS},   // DF24
-		{31, MODES_LONG_MSG_BITS},   // DF31
+		{0, MODES_SHORT_MSG_BITS},  // DF0
+		{4, MODES_SHORT_MSG_BITS},  // DF4
+		{11, MODES_SHORT_MSG_BITS}, // DF11
+		{15, MODES_SHORT_MSG_BITS}, // DF15
+		{16, MODES_LONG_MSG_BITS},  // DF16
+		{17, MODES_LONG_MSG_BITS},  // DF17
+		{18, MODES_LONG_MSG_BITS},  // DF18
+		{24, MODES_LONG_MSG_BITS},  // DF24
+		{31, MODES_LONG_MSG_BITS},  // DF31
 	}
 
 	for _, tt := range tests {
@@ -34,15 +34,15 @@ func TestGetbits(t *testing.T) {
 	msg, _ := hex.DecodeString("8D4840D6202CC371C32CE0576098")
 
 	tests := []struct {
-		name      string
-		firstbit  int
-		lastbit   int
-		expected  uint32
+		name     string
+		firstbit int
+		lastbit  int
+		expected uint32
 	}{
-		{"DF type (bits 1-5)", 1, 5, 17},     // DF17 = 10001
-		{"CA (bits 6-8)", 6, 8, 5},           // CA=5
+		{"DF type (bits 1-5)", 1, 5, 17},      // DF17 = 10001
+		{"CA (bits 6-8)", 6, 8, 5},            // CA=5
 		{"ICAO (bits 9-32)", 9, 32, 0x4840D6}, // Aircraft address
-		{"ME type (bits 33-37)", 33, 37, 4},  // ME type 4 (callsign)
+		{"ME type (bits 33-37)", 33, 37, 4},   // ME type 4 (callsign)
 	}
 
 	for _, tt := range tests {

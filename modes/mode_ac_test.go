@@ -14,19 +14,19 @@ func TestModeAToModeCAltitude(t *testing.T) {
 		wantAlt int
 	}{
 		// Valid altitude conversions (verified against dump1090-mutability C code)
-		{"sea_level_0ft", 0x0620, 0},          // B2+B4+C2 → 0 (= 0 ft)
-		{"one_hundred_200ft", 0x0610, 2},       // B2+B4+C1 → 2 (= 200 ft)
-		{"two_hundred_300ft", 0x0210, 3},       // B2+C1 → 3 (= 300 ft)
-		{"four_hundred_500ft", 0x0220, 5},      // B2+C2 → 5 (= 500 ft)
-		{"five_hundred_600ft", 0x0260, 6},      // B2+C2+C4 → 6 (= 600 ft)
-		{"six_hundred_700ft", 0x0240, 7},       // B2+C4 → 7 (= 700 ft)
-		{"negative_800ft", 0x0010, -8},         // C1 → -8 (= -800 ft)
-		{"negative_1000ft", 0x0020, -10},       // C2 → -10 (= -1000 ft)
-		{"negative_1200ft", 0x0040, -12},       // C4 → -12 (= -1200 ft)
-		{"B1_altitude_2300ft", 0x0110, 23},     // B1+C1 → 23 (= 2300 ft)
-		{"B1_altitude_2500ft", 0x0120, 25},     // B1+C2 → 25 (= 2500 ft)
-		{"negative_500ft", 0x0420, -5},         // B4+C2 → -5 (= -500 ft)
-		{"negative_300ft", 0x0440, -3},         // B4+C4 → -3 (= -300 ft)
+		{"sea_level_0ft", 0x0620, 0},       // B2+B4+C2 → 0 (= 0 ft)
+		{"one_hundred_200ft", 0x0610, 2},   // B2+B4+C1 → 2 (= 200 ft)
+		{"two_hundred_300ft", 0x0210, 3},   // B2+C1 → 3 (= 300 ft)
+		{"four_hundred_500ft", 0x0220, 5},  // B2+C2 → 5 (= 500 ft)
+		{"five_hundred_600ft", 0x0260, 6},  // B2+C2+C4 → 6 (= 600 ft)
+		{"six_hundred_700ft", 0x0240, 7},   // B2+C4 → 7 (= 700 ft)
+		{"negative_800ft", 0x0010, -8},     // C1 → -8 (= -800 ft)
+		{"negative_1000ft", 0x0020, -10},   // C2 → -10 (= -1000 ft)
+		{"negative_1200ft", 0x0040, -12},   // C4 → -12 (= -1200 ft)
+		{"B1_altitude_2300ft", 0x0110, 23}, // B1+C1 → 23 (= 2300 ft)
+		{"B1_altitude_2500ft", 0x0120, 25}, // B1+C2 → 25 (= 2500 ft)
+		{"negative_500ft", 0x0420, -5},     // B4+C2 → -5 (= -500 ft)
+		{"negative_300ft", 0x0440, -3},     // B4+C4 → -3 (= -300 ft)
 
 		// Invalid codes
 		{"zero_all_bits_off", 0x0000, INVALID_ALTITUDE}, // C bits all zero

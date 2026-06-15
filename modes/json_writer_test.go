@@ -18,7 +18,7 @@ func TestNewJSONWriter(t *testing.T) {
 
 	cfg := JSONWriterConfig{
 		Dir:             t.TempDir(),
-		JSONInterval:    500,  // 500ms
+		JSONInterval:    500, // 500ms
 		HistorySize:     10,
 		HistoryInterval: 5000, // 5s
 	}

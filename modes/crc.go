@@ -25,8 +25,8 @@ const (
 
 // ErrorInfo describes a correctable error pattern.
 type ErrorInfo struct {
-	Syndrome uint32  // CRC syndrome
-	Errors   int     // number of errors (-1 = collision, don't use)
+	Syndrome uint32                    // CRC syndrome
+	Errors   int                       // number of errors (-1 = collision, don't use)
 	Bit      [MODES_MAX_BITERRORS]int8 // bit positions to fix (-1 = no bit)
 }
 
@@ -46,8 +46,8 @@ var (
 	singleBitSyndrome [112]uint32
 
 	// Error correction tables for short and long messages
-	bitErrorTableShort     []ErrorInfo
-	bitErrorTableLong      []ErrorInfo
+	bitErrorTableShort []ErrorInfo
+	bitErrorTableLong  []ErrorInfo
 )
 
 // initLookupTables initializes the CRC and syndrome lookup tables.

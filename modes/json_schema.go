@@ -15,11 +15,11 @@ import (
 // ReceiverJSONParams holds parameters for generating receiver.json.
 type ReceiverJSONParams struct {
 	Version          string
-	RefreshMs        int     // refresh interval in milliseconds
+	RefreshMs        int // refresh interval in milliseconds
 	History          int
 	Lat              float64
 	Lon              float64
-	LocationAccuracy int     // 0=none, 1=rough (2dp), 2=exact
+	LocationAccuracy int // 0=none, 1=rough (2dp), 2=exact
 }
 
 // GenerateReceiverJSONWithAccuracy generates receiver.json with refresh in

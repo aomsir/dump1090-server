@@ -52,10 +52,10 @@ const (
 	ADDR_ADSR_ICAO                    // ADS-R, ICAO address
 	ADDR_TISB_ICAO                    // TIS-B, ICAO address
 
-	ADDR_ADSB_OTHER      // ADS-B, other address format
-	ADDR_ADSR_OTHER      // ADS-R, other address format
-	ADDR_TISB_TRACKFILE  // TIS-B, Mode A code + track file number
-	ADDR_TISB_OTHER      // TIS-B, other address format
+	ADDR_ADSB_OTHER     // ADS-B, other address format
+	ADDR_ADSR_OTHER     // ADS-R, other address format
+	ADDR_TISB_TRACKFILE // TIS-B, Mode A code + track file number
+	ADDR_TISB_OTHER     // TIS-B, other address format
 
 	ADDR_UNKNOWN // unknown address format
 )
@@ -168,26 +168,26 @@ type Message struct {
 	MV [7]byte  // DF17/18 MV field
 
 	// Decoded data (validity indicated by flags)
-	AltitudeValid      bool
-	HeadingValid       bool
-	SpeedValid         bool
-	VertRateValid      bool
-	SquawkValid        bool
-	CallsignValid      bool
-	EWVelocityValid    bool
-	NSVelocityValid    bool
-	CPRValid           bool
-	CPROdd             bool
-	CPRDecoded         bool
-	CPRRelative        bool
-	CategoryValid      bool
-	GNSSDeltaValid     bool
-	FromMLAT           bool
-	FromTISB           bool
-	SPIValid           bool
-	SPI                bool
-	AlertValid         bool
-	Alert              bool
+	AltitudeValid   bool
+	HeadingValid    bool
+	SpeedValid      bool
+	VertRateValid   bool
+	SquawkValid     bool
+	CallsignValid   bool
+	EWVelocityValid bool
+	NSVelocityValid bool
+	CPRValid        bool
+	CPROdd          bool
+	CPRDecoded      bool
+	CPRRelative     bool
+	CategoryValid   bool
+	GNSSDeltaValid  bool
+	FromMLAT        bool
+	FromTISB        bool
+	SPIValid        bool
+	SPI             bool
+	AlertValid      bool
+	Alert           bool
 
 	METype uint32 // DF17/18 ME type
 	MESub  uint32 // DF17/18 ME subtype
@@ -246,19 +246,19 @@ type Message struct {
 		OMSDA    uint32
 
 		// Capability Class
-		CCACAS      bool
-		CCCDTI      bool
-		CC1090In    bool
-		CCARV       bool
-		CCTS        bool
-		CCTC        uint32
-		CCUATIn     bool
-		CCPOA       bool
-		CCB2Low     bool
-		CCNACv      uint32
-		CCNICSupp   bool
-		CCLWValid   bool
-		CCLW        uint32
+		CCACAS       bool
+		CCCDTI       bool
+		CC1090In     bool
+		CCARV        bool
+		CCTS         bool
+		CCTC         uint32
+		CCUATIn      bool
+		CCPOA        bool
+		CCB2Low      bool
+		CCNACv       uint32
+		CCNICSupp    bool
+		CCLWValid    bool
+		CCLW         uint32
 		CCAntennaOff uint32
 
 		NICSupp uint32
@@ -274,19 +274,19 @@ type Message struct {
 
 	// Target State & Status (ADS-B V2 only)
 	TSS struct {
-		Valid          bool
-		AltitudeValid  bool
-		BaroValid      bool
-		HeadingValid   bool
-		ModeValid      bool
-		ModeAutopilot  bool
-		ModeVNAV       bool
-		ModeAltHold    bool
-		ModeApproach   bool
+		Valid           bool
+		AltitudeValid   bool
+		BaroValid       bool
+		HeadingValid    bool
+		ModeValid       bool
+		ModeAutopilot   bool
+		ModeVNAV        bool
+		ModeAltHold     bool
+		ModeApproach    bool
 		ACASOperational bool
-		NACp           uint32
-		NICBaro        bool
-		SIL            uint32
+		NACp            uint32
+		NICBaro         bool
+		SIL             uint32
 
 		SILType      SILType
 		AltitudeType uint32 // TSS_ALTITUDE_MCP or TSS_ALTITUDE_FMS
@@ -324,12 +324,12 @@ const (
 
 // Mode A/C flags
 const (
-	MODEAC_MSG_FLAG        = 1 << 0 // Synthetic ICAO from Mode A/C
-	MODEAC_MSG_MODES_HIT   = 1 << 1 // This Mode A/C matches a known Mode S
-	MODEAC_MSG_MODEA_HIT   = 1 << 2 // This Mode S matches a known Mode A
-	MODEAC_MSG_MODEC_HIT   = 1 << 3 // This Mode S matches a known Mode C
-	MODEAC_MSG_MODEA_ONLY  = 1 << 4 // This Mode A/C is from a Mode A only roll call
-	MODEAC_MSG_MODEC_OLD   = 1 << 5 // This Mode A/C has previously been Mode C matched
+	MODEAC_MSG_FLAG       = 1 << 0 // Synthetic ICAO from Mode A/C
+	MODEAC_MSG_MODES_HIT  = 1 << 1 // This Mode A/C matches a known Mode S
+	MODEAC_MSG_MODEA_HIT  = 1 << 2 // This Mode S matches a known Mode A
+	MODEAC_MSG_MODEC_HIT  = 1 << 3 // This Mode S matches a known Mode C
+	MODEAC_MSG_MODEA_ONLY = 1 << 4 // This Mode A/C is from a Mode A only roll call
+	MODEAC_MSG_MODEC_OLD  = 1 << 5 // This Mode A/C has previously been Mode C matched
 )
 
 // Aircraft represents the state of one tracked aircraft.
@@ -349,9 +349,9 @@ type Aircraft struct {
 	Callsign      [9]byte // Flight number
 
 	// Barometric altitude
-	AltitudeValid  DataValidity
-	Altitude       int      // Altitude (feet, barometric)
-	AltitudeModeC  uint32   // Altitude as Mode C value (100ft increments)
+	AltitudeValid DataValidity
+	Altitude      int    // Altitude (feet, barometric)
+	AltitudeModeC uint32 // Altitude as Mode C value (100ft increments)
 
 	// GNSS altitude
 	AltitudeGNSSValid DataValidity
@@ -422,18 +422,18 @@ type Aircraft struct {
 
 	// FATSV (FlightAware TSV) output tracking
 	// These fields track the last emitted values to avoid redundant updates
-	FATSVLastEmitted          uint64    // Time (millis) aircraft was last FATSV emitted
-	FATSVEmittedAltitude      int       // Last emitted barometric altitude
-	FATSVEmittedAltitudeGNSS  int       // Last emitted GNSS altitude
-	FATSVEmittedHeading       uint32    // Last emitted true heading
-	FATSVEmittedHeadingMag    uint32    // Last emitted magnetic heading
-	FATSVEmittedSpeed         uint32    // Last emitted ground speed
-	FATSVEmittedSpeedIAS      uint32    // Last emitted IAS
-	FATSVEmittedSpeedTAS      uint32    // Last emitted TAS
-	FATSVEmittedAirGround     AirGround // Last emitted air/ground state
-	FATSVEmittedBDS10         [7]byte   // Last emitted BDS 1,0 message
-	FATSVEmittedBDS30         [7]byte   // Last emitted BDS 3,0 message
-	FATSVEmittedESStatus      [7]byte   // Last emitted ES operational status message
-	FATSVEmittedESTarget      [7]byte   // Last emitted ES target status message
-	FATSVEmittedESACASRA      [7]byte   // Last emitted ES ACAS RA report message
+	FATSVLastEmitted         uint64    // Time (millis) aircraft was last FATSV emitted
+	FATSVEmittedAltitude     int       // Last emitted barometric altitude
+	FATSVEmittedAltitudeGNSS int       // Last emitted GNSS altitude
+	FATSVEmittedHeading      uint32    // Last emitted true heading
+	FATSVEmittedHeadingMag   uint32    // Last emitted magnetic heading
+	FATSVEmittedSpeed        uint32    // Last emitted ground speed
+	FATSVEmittedSpeedIAS     uint32    // Last emitted IAS
+	FATSVEmittedSpeedTAS     uint32    // Last emitted TAS
+	FATSVEmittedAirGround    AirGround // Last emitted air/ground state
+	FATSVEmittedBDS10        [7]byte   // Last emitted BDS 1,0 message
+	FATSVEmittedBDS30        [7]byte   // Last emitted BDS 3,0 message
+	FATSVEmittedESStatus     [7]byte   // Last emitted ES operational status message
+	FATSVEmittedESTarget     [7]byte   // Last emitted ES target status message
+	FATSVEmittedESACASRA     [7]byte   // Last emitted ES ACAS RA report message
 }

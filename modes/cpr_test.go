@@ -250,16 +250,16 @@ func TestCPRNLFunction(t *testing.T) {
 		lat      float64
 		expected int
 	}{
-		{0, 59},     // Equator
-		{10, 59},    // Just under first boundary
-		{11, 58},    // Just over first boundary
-		{45, 42},    // Mid latitude
-		{86.5, 3},   // < 86.53537 → returns 3
-		{86.6, 2},   // >= 86.53537 but < 87 → returns 2
-		{87, 1},     // >= 87.0 → returns 1
-		{90, 1},     // Pole
-		{-45, 42},   // Negative latitude (symmetric)
-		{-86.6, 2},  // Negative near pole
+		{0, 59},    // Equator
+		{10, 59},   // Just under first boundary
+		{11, 58},   // Just over first boundary
+		{45, 42},   // Mid latitude
+		{86.5, 3},  // < 86.53537 → returns 3
+		{86.6, 2},  // >= 86.53537 but < 87 → returns 2
+		{87, 1},    // >= 87.0 → returns 1
+		{90, 1},    // Pole
+		{-45, 42},  // Negative latitude (symmetric)
+		{-86.6, 2}, // Negative near pole
 	}
 
 	for _, tt := range tests {
@@ -276,7 +276,7 @@ func TestCPRModInt(t *testing.T) {
 		want int
 	}{
 		{5, 3, 2},
-		{-5, 3, 1},  // Always positive
+		{-5, 3, 1}, // Always positive
 		{10, 4, 2},
 		{-10, 4, 2}, // Always positive
 		{0, 5, 0},

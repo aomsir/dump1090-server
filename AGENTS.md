@@ -1,29 +1,74 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Root Go module `github.com/aomsir/dump1090-go`; core decoder lives in `dump1090-libs/`.
-- `dump1090-libs/*.c`/`*.h` implement the ADS-B decoder (`dump1090`), console viewer, and FlightAware feeder; front-end assets and config JS sit in `public_html/`.
-- `compat/` contains POSIX/macOS shims; `tools/` holds helper scripts and test pages; `debian/` contains packaging specs; README files document usage and JSON outputs.
-- Tests are colocated with sources (e.g., `cprtests.c`), built via Make targets.
+
+- Root Go module `github.com/aomsir/dump1090-server`; all source in pure Go.
+- `cmd/dump1090-server/` - Main ADS-B decoder binary.
+- `cmd/view1090/` - Interactive aircraft display client (Beast TCP).
+- `cmd/faup1090/` - FlightAware uploader proxy (Beast TCP, FATSV stdout).
+- `modes/` - Core decoder, CPR, tracking, output, protocol, and DSP logic.
+- `rtlsdr/` - CGO wrapper for librtlsdr (optional, requires C toolchain).
+- `ui/` - Terminal UI rendering for interactive display.
+- `testdata/` - Test fixtures and sample data.
+- `docs/` - Documentation (compatibility matrix, etc.).
+- `bin/` - Build output (gitignored).
 
 ## Build, Test, and Development Commands
-- `cd dump1090-libs`
-- `make`: build `dump1090` and `view1090` with `gcc`, `pkg-config`, `librtlsdr`, and `libusb-1.0`.
-- `make faup1090`: build the TSV feeder.
-- `make test`: build and run `cprtests`; `make crctests` for CRC harness; `make clean` to remove objects/binaries.
-- Debian packaging: install `librtlsdr-dev libusb-1.0-0-dev pkg-config debhelper`, then `dpkg-buildpackage -b` from `dump1090-libs/`.
+
+```bash
+# Build main binary (network-only, no CGO required)
+CGO_ENABLED=0 go build -o bin/dump1090-server ./cmd/dump1090-server
+
+# Build with RTL-SDR hardware support (requires librtlsdr)
+go build -o bin/dump1090-server ./cmd/dump1090-server
+
+# Build companion utilities
+CGO_ENABLED=0 go build -o bin/view1090 ./cmd/view1090
+CGO_ENABLED=0 go build -o bin/faup1090 ./cmd/faup1090
+
+# Run all tests
+CGO_ENABLED=0 go test ./...
+
+# Run tests with coverage
+CGO_ENABLED=0 go test -cover ./modes/
+
+# Run benchmarks
+CGO_ENABLED=0 go test -bench=. -benchmem ./modes/
+
+# Vet
+CGO_ENABLED=0 go vet ./...
+
+# Format check
+gofmt -w . && git diff --exit-code
+```
 
 ## Coding Style & Naming Conventions
-- Target C11; prefer 4-space indentation and avoid tabs; all code must pass `-Wall -Werror`.
-- Keep functions small and testable; maintain existing module prefixes (`modes_*`, `net_*`, `cpr_*`); limit new globals and mark file-local helpers `static`.
-- Use uppercase snake case for macros/constants and lowercase snake case for functions; keep config paths and defaults aligned with current behavior.
+
+- Go 1.21+; use standard `gofmt` formatting.
+- Keep functions small and testable; prefer table-driven tests.
+- Minimize allocations in hot paths (decoder, CPR, CRC).
+- Use `sync.RWMutex` for shared state; avoid global mutable state.
+- Export only what needs to be public; keep helpers unexported.
+- Follow existing module patterns (`modes/`, `cmd/`).
 
 ## Testing Guidelines
-- Run `make test` before submitting; add focused test binaries beside the module (pattern `<feature>tests.c`) using the existing harness style.
-- For data or output changes, replay captures through `dump1090`/`view1090` and verify JSON under `/run/dump1090-mutability/` renders via `public_html`.
-- Keep logging quiet by default; guard verbose output behind existing flags.
+
+- Run `CGO_ENABLED=0 go test ./...` before submitting.
+- Add table-driven tests beside source files (`*_test.go`).
+- For data or output changes, verify JSON output format matches dump1090-mutability.
+- Keep logging quiet by default; guard verbose output behind flags.
+- Use `testdata/` for fixture files; do not commit large binaries.
 
 ## Commit & Pull Request Guidelines
-- Use concise, imperative subjects (e.g., `Fix CPR edge cases`); separate unrelated changes into distinct commits.
-- PRs should explain motivation, risks, and testing (`make test`, manual replay notes); call out packaging/compatibility changes and any new dependencies.
-- Include screenshots only when modifying `public_html` UI; note when behavior, default ports, or security posture (binding addresses) changes.
+
+- Use concise, imperative subjects (e.g., `Fix CPR edge cases`).
+- Separate unrelated changes into distinct commits.
+- PRs should explain motivation, risks, and testing (`go test`, manual replay notes).
+- Call out packaging/compatibility changes and any new dependencies.
+- Note when behavior, default ports, or security posture (binding addresses) changes.
+
+## Scope Limitations
+
+- **No WebUI**: This project does not include browser-based map UI. Use external tools (e.g., tar1090) for visualization.
+- **No CGO in CI**: Tests and vet run with `CGO_ENABLED=0` only. Hardware-dependent code is excluded from automated testing.
+- **Network-only default**: Docker image and default builds assume network-only mode. Hardware support requires explicit CGO build.

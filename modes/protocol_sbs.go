@@ -115,22 +115,24 @@ func EncodeSBS(mm *Message, a *Aircraft) string {
 // Returns 0 if the message should not produce SBS output.
 //
 // SBS MSG types:
-//   1 = ES Identification and Category (callsign)
-//   3 = ES Airborne Position (altitude, position)
-//   4 = ES Airborne Velocity (speed, heading)
-//   5 = Surveillance Altitude (short reply altitude)
-//   6 = Surveillance ID (short reply squawk)
-//   7 = Air-to-Air Message (DF16 altitude)
-//   8 = All Call Reply (DF11)
+//
+//	1 = ES Identification and Category (callsign)
+//	3 = ES Airborne Position (altitude, position)
+//	4 = ES Airborne Velocity (speed, heading)
+//	5 = Surveillance Altitude (short reply altitude)
+//	6 = Surveillance ID (short reply squawk)
+//	7 = Air-to-Air Message (DF16 altitude)
+//	8 = All Call Reply (DF11)
 //
 // Supported DF types:
-//   DF4  -> MSG 5 (Surveillance altitude) or none
-//   DF5  -> MSG 6 (squawk)
-//   DF11 -> MSG 8 (All-call reply)
-//   DF17 -> MSG 1/3/4 based on decoded content
-//   DF18 -> MSG 1/3/4 based on decoded content
-//   DF20 -> MSG 3 (altitude from Comm-B) or MSG 1 (callsign from BDS 2,0)
-//   DF21 -> MSG 6 (squawk from Comm-B) or MSG 1 (callsign from BDS 2,0)
+//
+//	DF4  -> MSG 5 (Surveillance altitude) or none
+//	DF5  -> MSG 6 (squawk)
+//	DF11 -> MSG 8 (All-call reply)
+//	DF17 -> MSG 1/3/4 based on decoded content
+//	DF18 -> MSG 1/3/4 based on decoded content
+//	DF20 -> MSG 3 (altitude from Comm-B) or MSG 1 (callsign from BDS 2,0)
+//	DF21 -> MSG 6 (squawk from Comm-B) or MSG 1 (callsign from BDS 2,0)
 func sbsMessageType(mm *Message) int {
 	switch mm.MsgType {
 	case 4:

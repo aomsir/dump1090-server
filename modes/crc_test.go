@@ -175,7 +175,7 @@ func TestCombinations(t *testing.T) {
 		{5, 4, 5},
 		{5, 5, 1},
 		{10, 2, 45},
-		{107, 1, 107}, // for 1-bit errors in 112-bit message (ignoring first 5 bits)
+		{107, 1, 107},  // for 1-bit errors in 112-bit message (ignoring first 5 bits)
 		{107, 2, 5671}, // for 2-bit errors
 	}
 

@@ -63,14 +63,14 @@ func LogSigterm() {
 
 // RTL-SDR connection log messages (matching C version)
 const (
-	RTLSDRLostConnection   = "Warning: lost the connection to the RTLSDR device."
-	RTLSDRReconnecting     = "Trying to reconnect to the RTLSDR device.."
-	RTLSDRFoundDevices     = "Found %d device(s):"
-	RTLSDRDeviceInfo       = "  %d:  %s, %s, SN: %s"
-	RTLSDRUsingDevice      = "Using device %d: %s"
-	RTLSDRGainReported     = "Gain reported by device: %.2f"
-	RTLSDRSampleRateModes  = "Sample rate set to %d Hz."
-	RTLSDRCenterFreq       = "Tuned to %.3f MHz."
+	RTLSDRLostConnection  = "Warning: lost the connection to the RTLSDR device."
+	RTLSDRReconnecting    = "Trying to reconnect to the RTLSDR device.."
+	RTLSDRFoundDevices    = "Found %d device(s):"
+	RTLSDRDeviceInfo      = "  %d:  %s, %s, SN: %s"
+	RTLSDRUsingDevice     = "Using device %d: %s"
+	RTLSDRGainReported    = "Gain reported by device: %.2f"
+	RTLSDRSampleRateModes = "Sample rate set to %d Hz."
+	RTLSDRCenterFreq      = "Tuned to %.3f MHz."
 )
 
 // LogRTLSDRLost logs loss of RTL-SDR connection
@@ -115,8 +115,8 @@ func LogCenterFreq(freqHz uint32) {
 
 // Network log messages (matching C version net_io.c)
 const (
-	NetListening       = "%s port %s"
-	NetClientConnected = "Client connected: %s port %s"
+	NetListening          = "%s port %s"
+	NetClientConnected    = "Client connected: %s port %s"
 	NetClientDisconnected = "Client disconnected: %s port %s"
 )
 

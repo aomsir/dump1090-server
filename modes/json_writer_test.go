@@ -331,6 +331,31 @@ func TestJSONStatsFullSchema(t *testing.T) {
 	}
 }
 
+func TestJSONStatsFullSchemaWithoutCollector(t *testing.T) {
+	tracker := NewTracker()
+	var totalMessages uint64
+
+	// Create JSONWriter without calling SetStatsCollector
+	w := NewJSONWriter(JSONWriterConfig{
+		Dir:     t.TempDir(),
+		Version: "1.0.0",
+	}, tracker, &totalMessages)
+
+	statsJSON := w.generateStatsJSON()
+
+	var stats map[string]interface{}
+	if err := json.Unmarshal(statsJSON, &stats); err != nil {
+		t.Fatalf("stats JSON without collector is not valid JSON: %v\nbody: %s", err, string(statsJSON))
+	}
+
+	requiredKeys := []string{"latest", "last1min", "last5min", "last15min", "total"}
+	for _, key := range requiredKeys {
+		if _, ok := stats[key]; !ok {
+			t.Errorf("stats JSON without collector missing required key %q", key)
+		}
+	}
+}
+
 func TestSharedReceiverJSONMilliseconds(t *testing.T) {
 	r := GenerateReceiverJSONWithAccuracy(ReceiverJSONParams{
 		Version:          "1.0.0",

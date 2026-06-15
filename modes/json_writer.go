@@ -338,15 +338,7 @@ func (w *JSONWriter) getHistoryCount() int {
 // generateStatsJSON generates stats.json content matching C version format
 func (w *JSONWriter) generateStatsJSON() []byte {
 	if w.statsCollector == nil {
-		// Fallback to simple format if no collector
-		now := time.Now()
-		totalMsgs := atomic.LoadUint64(w.totalMessages)
-		var buf []byte
-		buf = append(buf, fmt.Sprintf("{ \"latest\" : { \"start\" : %.1f, \"end\" : %.1f",
-			float64(now.Unix()), float64(now.Unix()))...)
-		buf = append(buf, fmt.Sprintf(", \"messages\" : %d }", totalMsgs)...)
-		buf = append(buf, " }\n"...)
-		return buf
+		return GenerateStatsJSON(nil)
 	}
 
 	// Get all time windows

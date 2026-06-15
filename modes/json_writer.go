@@ -321,21 +321,9 @@ func (w *JSONWriter) generateReceiverJSON() []byte {
 		LocationAccuracy: w.locationAccuracy,
 	})
 
-	var buf []byte
-	buf = append(buf, fmt.Sprintf("{ \"version\" : \"%s\", ", receiver.Version)...)
-	buf = append(buf, fmt.Sprintf("\"refresh\" : %.0f, ", receiver.Refresh)...)
-	buf = append(buf, fmt.Sprintf("\"history\" : %d", receiver.History)...)
-
-	if receiver.Lat != 0 || receiver.Lon != 0 {
-		if w.locationAccuracy == 1 {
-			buf = append(buf, fmt.Sprintf(", \"lat\" : %.2f, \"lon\" : %.2f", receiver.Lat, receiver.Lon)...)
-		} else {
-			buf = append(buf, fmt.Sprintf(", \"lat\" : %.6f, \"lon\" : %.6f", receiver.Lat, receiver.Lon)...)
-		}
-	}
-
-	buf = append(buf, " }\n"...)
-	return buf
+	data, _ := json.MarshalIndent(receiver, "", "  ")
+	data = append(data, '\n')
+	return data
 }
 
 // getHistoryCount returns the number of valid history entries

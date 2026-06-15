@@ -412,11 +412,7 @@ func newTestApp(config *Config) *App {
 }
 
 func TestHTTPHistoryRouteMatchesHistoryFiles(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "dump1090-http-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	app := newTestApp(&Config{
 		WriteJSON:       tmpDir,
@@ -427,21 +423,7 @@ func TestHTTPHistoryRouteMatchesHistoryFiles(t *testing.T) {
 	app.jsonWriter = modes.NewJSONWriter(modes.JSONWriterConfig{
 		Dir:             tmpDir,
 		HistorySize:     10,
-		HistoryInterval: 30000,
-		Version:         "1.0.0",
-	}, app.tracker, &app.totalMessages)
-	app.jsonWriter.SetStatsCollector(app.statsCollector)
-
-	// Trigger a history write by calling PeriodicUpdate after initial files
-	app.jsonWriter.WriteInitialFiles()
-
-	// The first periodic update after WriteInitialFiles should write history_0.json
-	// We need to wait for the history interval to elapse.
-	// For testing, use a short interval.
-	app.jsonWriter = modes.NewJSONWriter(modes.JSONWriterConfig{
-		Dir:             tmpDir,
-		HistorySize:     10,
-		HistoryInterval: 100, // 100ms
+		HistoryInterval: 100, // 100ms for fast test
 		Version:         "1.0.0",
 	}, app.tracker, &app.totalMessages)
 	app.jsonWriter.SetStatsCollector(app.statsCollector)
@@ -478,13 +460,14 @@ func TestHTTPHistoryRouteMatchesHistoryFiles(t *testing.T) {
 }
 
 func TestHTTPReceiverJSONRefreshIsMilliseconds(t *testing.T) {
+	tmpDir := t.TempDir()
 	app := newTestApp(&Config{
-		WriteJSON:      "/tmp/test-json",
+		WriteJSON:      tmpDir,
 		WriteJSONEvery: 1.0, // 1 second
 		HistorySize:    120,
 	})
 	app.jsonWriter = modes.NewJSONWriter(modes.JSONWriterConfig{
-		Dir:          "/tmp/test-json",
+		Dir:          tmpDir,
 		JSONInterval: 1000, // 1 second in ms
 		HistorySize:  120,
 		Version:      "1.0.0",
@@ -551,8 +534,9 @@ func TestHTTPReceiverJSONRespectsLocationAccuracy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
 			app := newTestApp(&Config{
-				WriteJSON:        "/tmp/test-json",
+				WriteJSON:        tmpDir,
 				WriteJSONEvery:   1.0,
 				HistorySize:      120,
 				Latitude:         tt.lat,
@@ -560,7 +544,7 @@ func TestHTTPReceiverJSONRespectsLocationAccuracy(t *testing.T) {
 				LocationAccuracy: tt.accuracy,
 			})
 			app.jsonWriter = modes.NewJSONWriter(modes.JSONWriterConfig{
-				Dir:              "/tmp/test-json",
+				Dir:              tmpDir,
 				JSONInterval:     1000,
 				HistorySize:      120,
 				ReceiverLat:      tt.lat,
@@ -614,7 +598,7 @@ func TestHTTPReceiverJSONRespectsLocationAccuracy(t *testing.T) {
 func TestHTTPStatsJSONUsesFullSchema(t *testing.T) {
 	app := newTestApp(&Config{})
 	app.jsonWriter = modes.NewJSONWriter(modes.JSONWriterConfig{
-		Dir:          "/tmp/test-json",
+		Dir:          t.TempDir(),
 		JSONInterval: 1000,
 		HistorySize:  120,
 		Version:      "1.0.0",
@@ -643,6 +627,23 @@ func TestHTTPStatsJSONUsesFullSchema(t *testing.T) {
 		if _, ok := stats[key]; !ok {
 			t.Errorf("stats.json missing required key %q", key)
 		}
+	}
+}
+
+func TestHTTPUnknownDataRouteReturns404(t *testing.T) {
+	app := newTestApp(&Config{})
+	mux := app.newHTTPMux()
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/data/nonexistent.json")
+	if err != nil {
+		t.Fatalf("GET /data/nonexistent.json failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 for unknown /data/ route, got %d", resp.StatusCode)
 	}
 }
 

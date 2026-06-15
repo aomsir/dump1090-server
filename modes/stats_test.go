@@ -144,20 +144,24 @@ func TestStatsCollectorTracksMessagesRemoteAndAircraft(t *testing.T) {
 	}
 
 	// Test remote counters
-	sc.AddRemoteMessage(false, 0, false)
-	sc.AddRemoteMessage(false, 1, false)
-	sc.AddRemoteMessage(true, 0, false) // Mode AC
-	if sc.current.RemoteReceivedModes != 2 {
-		t.Errorf("RemoteReceivedModes = %d, want 2", sc.current.RemoteReceivedModes)
+	sc.AddRemoteMessage(false, 0, false) // Mode S, 0-bit accepted
+	sc.AddRemoteMessage(false, 1, false) // Mode S, 1-bit accepted
+	sc.AddRemoteMessage(true, 0, false)  // Mode AC — counted separately, not in accepted/rejected
+	sc.AddRemoteMessage(false, 0, true)  // Mode S, unknown ICAO
+	if sc.current.RemoteReceivedModes != 3 {
+		t.Errorf("RemoteReceivedModes = %d, want 3", sc.current.RemoteReceivedModes)
 	}
 	if sc.current.RemoteReceivedModeAC != 1 {
 		t.Errorf("RemoteReceivedModeAC = %d, want 1", sc.current.RemoteReceivedModeAC)
 	}
-	if sc.current.RemoteAccepted[0] != 2 {
-		t.Errorf("RemoteAccepted[0] = %d, want 2 (two 0-bit-error messages)", sc.current.RemoteAccepted[0])
+	if sc.current.RemoteAccepted[0] != 1 {
+		t.Errorf("RemoteAccepted[0] = %d, want 1 (only Mode S 0-bit-error)", sc.current.RemoteAccepted[0])
 	}
 	if sc.current.RemoteAccepted[1] != 1 {
 		t.Errorf("RemoteAccepted[1] = %d, want 1", sc.current.RemoteAccepted[1])
+	}
+	if sc.current.RemoteRejectedUnknownICAO != 1 {
+		t.Errorf("RemoteRejectedUnknownICAO = %d, want 1", sc.current.RemoteRejectedUnknownICAO)
 	}
 
 	// Test aircraft counters
@@ -184,7 +188,7 @@ func TestStatsCollectorTracksMessagesRemoteAndAircraft(t *testing.T) {
 	if total.SingleMessageAircraft != 1 {
 		t.Errorf("total.SingleMessageAircraft = %d, want 1", total.SingleMessageAircraft)
 	}
-	if total.RemoteReceivedModes != 2 {
-		t.Errorf("total.RemoteReceivedModes = %d, want 2", total.RemoteReceivedModes)
+	if total.RemoteReceivedModes != 3 {
+		t.Errorf("total.RemoteReceivedModes = %d, want 3", total.RemoteReceivedModes)
 	}
 }

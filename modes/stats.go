@@ -265,9 +265,10 @@ func (sc *StatsCollector) AddRemoteMessage(modeAC bool, bitErrors int, isUnknown
 
 	if modeAC {
 		sc.current.RemoteReceivedModeAC++
-	} else {
-		sc.current.RemoteReceivedModes++
+		return
 	}
+
+	sc.current.RemoteReceivedModes++
 
 	if isUnknownICAO {
 		sc.current.RemoteRejectedUnknownICAO++

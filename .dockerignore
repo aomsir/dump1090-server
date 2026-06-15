@@ -39,7 +39,10 @@ docker-compose.yml
 # Worktrees (not needed in container)
 .worktrees/
 
-# Generated runtime output (--write-json)
+# Generated runtime output (--write-json produces aircraft.json,
+# receiver.json, stats.json, history_N.json at runtime).
+# No JSON config files exist in the repo; testdata/ covers test fixtures.
+# Review this pattern if JSON config files are added to the source tree.
 *.json
 
 # Test data

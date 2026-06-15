@@ -80,6 +80,5 @@ Feature parity status with [dump1090-mutability](https://github.com/mutability/d
 
 | Feature | Status | Reason |
 |---|---|---|
-| WebUI / browser map | Not supported | Pure CLI/server tool; no `public_html/` assets |
-| Interactive terminal UI | Not supported | Upstream feature removed; use `view1090` instead |
-| `dump1090 --interactive` | Not supported | Use `view1090` command instead |
+| WebUI / browser map | Not supported | Pure CLI/server tool; no `public_html/` assets; use external visualizer (e.g., tar1090) |
+| Integrated `--interactive` mode in main binary | Not supported | Upstream removed; use separate `view1090` command instead |

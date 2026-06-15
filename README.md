@@ -323,7 +323,7 @@ GPL v2+ (matching dump1090-mutability)
 - Copyright (C) 2012 Salvatore Sanfilippo <antirez@gmail.com>
 
 **Go implementation:**
-- Copyright (c) 2025
+- Copyright (c) 2025 aomsir
 
 ## References
 

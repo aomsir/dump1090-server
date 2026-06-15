@@ -24,22 +24,22 @@ import (
 
 // Config holds the view1090 configuration.
 type Config struct {
-	BeastAddr      string // host:port for Beast TCP input
+	BeastAddr       string // host:port for Beast TCP input
 	InteractiveRows int
-	DisplayTTL     int  // seconds
-	Metric         bool
-	ModeAC         bool
-	ShowOnly       uint32
-	Quiet          bool
-	RTL1090        bool
+	DisplayTTL      int // seconds
+	Metric          bool
+	ModeAC          bool
+	ShowOnly        uint32
+	Quiet           bool
+	RTL1090         bool
 }
 
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		BeastAddr:      "127.0.0.1:30005",
+		BeastAddr:       "127.0.0.1:30005",
 		InteractiveRows: 22,
-		DisplayTTL:     60,
+		DisplayTTL:      60,
 	}
 }
 
@@ -74,12 +74,12 @@ func ParseFlagsFromSet(fs *flag.FlagSet, args []string) (*Config, error) {
 
 // App holds the view1090 application state.
 type App struct {
-	config    *Config
-	tracker   *modes.Tracker
+	config      *Config
+	tracker     *modes.Tracker
 	interactive *ui.Interactive
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
+	ctx         context.Context
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
 }
 
 func main() {
@@ -208,8 +208,21 @@ func (app *App) connectAndProcess() error {
 	}
 }
 
+// shouldTrackMessage reports whether a message should be tracked and displayed.
+// When ShowOnly is set, only messages from that ICAO address are tracked.
+func shouldTrackMessage(mm *modes.Message, showOnly uint32) bool {
+	if showOnly == 0 {
+		return true
+	}
+	return mm.Addr == showOnly
+}
+
 // handleMessage decodes a message and updates tracker state.
+// Messages not matching the --show-only filter are dropped.
 func (app *App) handleMessage(mm *modes.Message) {
+	if !shouldTrackMessage(mm, app.config.ShowOnly) {
+		return
+	}
 	if mm.MsgType == 32 {
 		app.tracker.UpdateFromModeAC(mm)
 		return

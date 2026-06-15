@@ -9,6 +9,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -71,7 +72,7 @@ func main() {
 	}
 
 	if config.Quiet {
-		log.SetOutput(log.Writer()) // keep log but suppress in quiet mode
+		log.SetOutput(io.Discard)
 	}
 
 	modes.ModesChecksumInit(0)
@@ -140,6 +141,7 @@ func (app *App) run() error {
 
 // connectAndProcess dials the Beast TCP source and processes messages until
 // the connection drops or context is cancelled.
+// NOTE: Beast parsing loop is shared with view1090; consider extracting if more commands need it.
 func (app *App) connectAndProcess() error {
 	conn, err := net.DialTimeout("tcp", app.config.BeastAddr, 5*time.Second)
 	if err != nil {

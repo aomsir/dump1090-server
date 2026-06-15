@@ -9,6 +9,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -27,6 +28,7 @@ type Config struct {
 	BeastAddr       string // host:port for Beast TCP input
 	InteractiveRows int
 	DisplayTTL      int // seconds
+	ReconnectDelay  int // seconds between reconnect attempts (0 = no reconnect)
 	Metric          bool
 	ModeAC          bool
 	ShowOnly        uint32
@@ -40,6 +42,7 @@ func DefaultConfig() *Config {
 		BeastAddr:       "127.0.0.1:30005",
 		InteractiveRows: 22,
 		DisplayTTL:      60,
+		ReconnectDelay:  5,
 	}
 }
 
@@ -51,6 +54,7 @@ func ParseFlagsFromSet(fs *flag.FlagSet, args []string) (*Config, error) {
 	fs.StringVar(&cfg.BeastAddr, "beast", cfg.BeastAddr, "Beast TCP input address (host:port)")
 	fs.IntVar(&cfg.InteractiveRows, "interactive-rows", cfg.InteractiveRows, "Number of display rows")
 	fs.IntVar(&cfg.DisplayTTL, "interactive-ttl", cfg.DisplayTTL, "Display TTL in seconds")
+	fs.IntVar(&cfg.ReconnectDelay, "reconnect", cfg.ReconnectDelay, "Reconnect delay in seconds (0 to disable)")
 	fs.BoolVar(&cfg.Metric, "metric", false, "Use metric units")
 	fs.BoolVar(&cfg.ModeAC, "modeac", false, "Enable Mode A/C decoding")
 	showOnly := fs.String("show-only", "", "Only show this ICAO address (hex)")
@@ -102,7 +106,10 @@ func main() {
 		app.interactive.DisplayTTL = config.DisplayTTL * 1000
 		app.interactive.Metric = config.Metric
 		app.interactive.RTL1090 = config.RTL1090
-		log.SetOutput(os.Stderr)
+	}
+
+	if config.Quiet {
+		log.SetOutput(io.Discard)
 	}
 
 	sigChan := make(chan os.Signal, 1)
@@ -124,7 +131,7 @@ func main() {
 }
 
 // run connects to the Beast TCP source and processes messages.
-// It reconnects on connection loss (unless context is cancelled).
+// It reconnects on connection loss (unless context is cancelled or reconnect is disabled).
 func (app *App) run() error {
 	for {
 		select {
@@ -138,19 +145,29 @@ func (app *App) run() error {
 			return nil
 		}
 
+		if app.config.ReconnectDelay <= 0 {
+			return err
+		}
+
 		select {
 		case <-app.ctx.Done():
 			return nil
 		default:
 		}
 
-		log.Printf("Connection lost: %v, reconnecting...", err)
-		time.Sleep(1 * time.Second)
+		log.Printf("Connection lost: %v, reconnecting in %ds...", err, app.config.ReconnectDelay)
+
+		select {
+		case <-app.ctx.Done():
+			return nil
+		case <-time.After(time.Duration(app.config.ReconnectDelay) * time.Second):
+		}
 	}
 }
 
 // connectAndProcess dials the Beast TCP source and processes messages until
 // the connection drops or context is cancelled.
+// NOTE: Beast parsing loop is shared with faup1090; consider extracting if more commands need it.
 func (app *App) connectAndProcess() error {
 	conn, err := net.DialTimeout("tcp", app.config.BeastAddr, 5*time.Second)
 	if err != nil {

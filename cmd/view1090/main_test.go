@@ -21,6 +21,9 @@ func TestParseFlagsDefaults(t *testing.T) {
 	if cfg.DisplayTTL != 60 {
 		t.Errorf("DisplayTTL = %d, want 60", cfg.DisplayTTL)
 	}
+	if cfg.ReconnectDelay != 5 {
+		t.Errorf("ReconnectDelay = %d, want 5", cfg.ReconnectDelay)
+	}
 	if cfg.Metric {
 		t.Error("Metric should be false by default")
 	}
@@ -99,6 +102,28 @@ func TestParseFlagsRTL1090(t *testing.T) {
 	}
 	if !cfg.RTL1090 {
 		t.Error("RTL1090 should be true")
+	}
+}
+
+func TestParseFlagsReconnect(t *testing.T) {
+	args := []string{"--reconnect", "10"}
+	cfg, err := ParseFlagsFromSet(flag.NewFlagSet("test", flag.ContinueOnError), args)
+	if err != nil {
+		t.Fatalf("ParseFlagsFromSet error: %v", err)
+	}
+	if cfg.ReconnectDelay != 10 {
+		t.Errorf("ReconnectDelay = %d, want 10", cfg.ReconnectDelay)
+	}
+}
+
+func TestParseFlagsReconnectZero(t *testing.T) {
+	args := []string{"--reconnect", "0"}
+	cfg, err := ParseFlagsFromSet(flag.NewFlagSet("test", flag.ContinueOnError), args)
+	if err != nil {
+		t.Fatalf("ParseFlagsFromSet error: %v", err)
+	}
+	if cfg.ReconnectDelay != 0 {
+		t.Errorf("ReconnectDelay = %d, want 0", cfg.ReconnectDelay)
 	}
 }
 

@@ -75,9 +75,7 @@ func (app *App) handleStatsJSON(w http.ResponseWriter, r *http.Request) {
 		w.Write(content)
 	} else {
 		data := modes.GenerateStatsJSONWithMessages(
-			atomic.LoadUint64(&app.totalMessages),
-			atomic.LoadUint64(&app.validMessages),
-			atomic.LoadUint64(&app.decodedMessages))
+			atomic.LoadUint64(&app.totalMessages))
 		w.Write(data)
 	}
 }

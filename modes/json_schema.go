@@ -90,9 +90,9 @@ func GenerateStatsJSON(sc *StatsCollector) []byte {
 }
 
 // GenerateStatsJSONWithMessages is a convenience wrapper for callers that
-// only have message counters and no StatsCollector. It produces a minimal
-// full-schema stats JSON with the counters embedded in the total block.
-func GenerateStatsJSONWithMessages(totalMessages, validMessages, decodedMessages uint64) []byte {
+// only have a total message count and no StatsCollector. It produces a minimal
+// full-schema stats JSON with the message count embedded in each block.
+func GenerateStatsJSONWithMessages(totalMessages uint64) []byte {
 	now := time.Now()
 	var buf []byte
 	buf = append(buf, fmt.Sprintf("{ \"latest\" : { \"start\" : %.1f, \"end\" : %.1f, \"messages\" : %d }",

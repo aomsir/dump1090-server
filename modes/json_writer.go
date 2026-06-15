@@ -337,46 +337,7 @@ func (w *JSONWriter) getHistoryCount() int {
 
 // generateStatsJSON generates stats.json content matching C version format
 func (w *JSONWriter) generateStatsJSON() []byte {
-	if w.statsCollector == nil {
-		return GenerateStatsJSON(nil)
-	}
-
-	// Get all time windows
-	latest := w.statsCollector.GetLatest()
-	last5min := w.statsCollector.GetLast5Min()
-	last15min := w.statsCollector.GetLast15Min()
-	total := w.statsCollector.GetAllTime()
-
-	// Build JSON
-	buf := make([]byte, 0, 4096)
-	buf = append(buf, "{\n"...)
-
-	// Latest (most recent complete 1-minute period)
-	buf = append(buf, "  \"latest\" : "...)
-	buf = append(buf, formatStatsBlock(&latest, true)...)
-	buf = append(buf, ",\n"...)
-
-	// Last 1 minute (alias of latest)
-	buf = append(buf, "  \"last1min\" : "...)
-	buf = append(buf, formatStatsBlock(&latest, true)...)
-	buf = append(buf, ",\n"...)
-
-	// Last 5 minutes
-	buf = append(buf, "  \"last5min\" : "...)
-	buf = append(buf, formatStatsBlock(&last5min, false)...)
-	buf = append(buf, ",\n"...)
-
-	// Last 15 minutes
-	buf = append(buf, "  \"last15min\" : "...)
-	buf = append(buf, formatStatsBlock(&last15min, false)...)
-	buf = append(buf, ",\n"...)
-
-	// Total (all time)
-	buf = append(buf, "  \"total\" : "...)
-	buf = append(buf, formatStatsBlock(&total, false)...)
-	buf = append(buf, "\n}\n"...)
-
-	return buf
+	return GenerateStatsJSON(w.statsCollector)
 }
 
 // formatStatsBlock formats a Stats struct into JSON format

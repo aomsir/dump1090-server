@@ -682,6 +682,15 @@ func TestHTTPStatsJSONFallbackUsesFullSchema(t *testing.T) {
 			t.Errorf("stats.json fallback missing required key %q", key)
 		}
 	}
+
+	// Verify total block contains messages field from totalMessages
+	total, ok := stats["total"].(map[string]interface{})
+	if !ok {
+		t.Fatal("stats.json fallback 'total' is not an object")
+	}
+	if _, ok := total["messages"]; !ok {
+		t.Error("stats.json fallback 'total' missing 'messages' field")
+	}
 }
 
 func float64Ptr(f float64) *float64 { return &f }

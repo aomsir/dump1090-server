@@ -323,7 +323,9 @@ func GenerateReceiverJSON(version string, refreshInterval float64, historySize i
 
 // EncodeAVR encodes a message in AVR format (ASCII hex with optional timestamp).
 // Format: *HEXMSG; or @TIMESTAMPHEXMSG;
-// Note: Timed format does NOT include * after timestamp (matching upstream format)
+// Note: Untimed output intentionally omits * to match upstream dump1090-mutability format.
+// Timed format does NOT include * after timestamp (matching upstream format).
+// Parser still accepts *HEXMSG; for input compatibility.
 func EncodeAVR(mm *Message, includeTimestamp bool) string {
 	if mm == nil {
 		return ""

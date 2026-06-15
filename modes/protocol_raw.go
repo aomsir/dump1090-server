@@ -117,6 +117,10 @@ func ParseRawAVR(input string, modeAC bool) (*Message, error) {
 		if hasTimestamp {
 			mm.Timestamp = timestamp
 			mm.TimestampMsg = timestamp
+			// Check for MLAT magic timestamp (consistent with Beast binary parser)
+			if mm.TimestampMsg == MAGIC_MLAT_TIMESTAMP {
+				mm.Source = SOURCE_MLAT
+			}
 		}
 		mm.SignalLevel = signalLevel
 		mm.Remote = true
@@ -136,6 +140,10 @@ func ParseRawAVR(input string, modeAC bool) (*Message, error) {
 	if hasTimestamp {
 		mm.Timestamp = timestamp
 		mm.TimestampMsg = timestamp
+		// Check for MLAT magic timestamp (consistent with Beast binary parser)
+		if mm.TimestampMsg == MAGIC_MLAT_TIMESTAMP {
+			mm.Source = SOURCE_MLAT
+		}
 	}
 	mm.SignalLevel = signalLevel
 	mm.Remote = true

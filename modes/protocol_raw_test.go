@@ -138,6 +138,32 @@ func TestParseRawAVRBeastAVRFormatWithSignal(t *testing.T) {
 	}
 }
 
+func TestParseRawAVRBeastAVRFormatMLATSource(t *testing.T) {
+	// <TIMESTAMP+SIGNAL*HEXDATA; with MLAT magic timestamp should set SOURCE_MLAT
+	// MLAT timestamp: 0xFF004D4C4154 (MAGIC_MLAT_TIMESTAMP)
+	ModesChecksumInit(2)
+	input := "<FF004D4C4154FF*8D4840D6202CC371C32CE0576098;"
+	mm, err := ParseRawAVR(input, false)
+	if err != nil {
+		t.Fatalf("ParseRawAVR() failed: %v", err)
+	}
+	if mm == nil {
+		t.Fatal("ParseRawAVR() returned nil message")
+	}
+	// Verify timestamp was parsed
+	if mm.TimestampMsg != MAGIC_MLAT_TIMESTAMP {
+		t.Errorf("Expected TimestampMsg=0x%012X, got 0x%012X", MAGIC_MLAT_TIMESTAMP, mm.TimestampMsg)
+	}
+	// Verify source is set to SOURCE_MLAT
+	if mm.Source != SOURCE_MLAT {
+		t.Errorf("Expected Source=SOURCE_MLAT (%d), got %d", SOURCE_MLAT, mm.Source)
+	}
+	// Verify Remote is set
+	if !mm.Remote {
+		t.Error("Expected Remote=true")
+	}
+}
+
 func TestParseRawAVRBeastAVRFormatRequiresStarSeparator(t *testing.T) {
 	// <TIMESTAMP+SIGNAL*HEXDATA; format should require * separator
 	// Without *, it should fail

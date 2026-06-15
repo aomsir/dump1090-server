@@ -144,6 +144,19 @@ func GetDeviceUSBStrings(index int) (vendor, product, serial string, err error) 
 		nil
 }
 
+// GetIndexBySerial finds a device index by exact serial number.
+func GetIndexBySerial(serial string) (int, error) {
+	cSerial := C.CString(serial)
+	defer C.free(unsafe.Pointer(cSerial))
+
+	idx := C.rtlsdr_get_index_by_serial(cSerial)
+	if idx < 0 {
+		return -1, translateError(int(idx))
+	}
+
+	return int(idx), nil
+}
+
 // FindDeviceBySerial finds a device index by serial number.
 // Supports exact match, prefix match (serial ends with '-'), and suffix match (serial starts with '-').
 // Returns the device index or -1 if not found.

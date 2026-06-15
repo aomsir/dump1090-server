@@ -40,17 +40,22 @@ For RTL-SDR hardware support:
 
 The default Docker image runs in **network-only mode** and does **not** access USB RTL-SDR hardware.
 
+Output ports (`30002`, `30003`, `30005`, `8080`, `10001`) serve data to consumers.
+Input ports (`30001`, `30004`, `30104`) accept remote data ingestion and are only
+needed when external senders connect to the container — expose them selectively.
+
 ```bash
 docker build -t dump1090-server .
 
-# Run with data ports exposed (default: --net-only)
-docker run -p 30002:30002 -p 30003:30003 -p 30005:30005 dump1090-server
+# Output ports only (typical)
+docker run -p 30002:30002 -p 30003:30003 -p 30005:30005 -p 8080:8080 -p 10001:10001 dump1090-server
 
-# Run with all default ports (including HTTP API, FATSV, and Beast input)
+# All ports (including input, for remote senders)
 docker run -p 30001:30001 -p 30002:30002 -p 30003:30003 -p 30004:30004 -p 30005:30005 -p 30104:30104 -p 8080:8080 -p 10001:10001 dump1090-server
 ```
 
-To use RTL-SDR hardware, build with CGO and run with `--privileged` or `--device` flags outside Docker.
+The default Docker image does not access USB RTL-SDR hardware. To use hardware,
+build with CGO enabled and run with `--privileged` or `--device` flags.
 
 ## Usage
 
@@ -79,6 +84,7 @@ To use RTL-SDR hardware, build with CGO and run with `--privileged` or `--device
 | 30003 | SBS Out  | Output in SBS (BaseStation) format |
 | 30004 | Beast In | Receive Beast binary format |
 | 30005 | Beast Out| Output in Beast binary format |
+| 30104 | Beast In | Receive Beast binary format (secondary) |
 | 8080  | HTTP     | JSON API endpoints |
 | 10001 | FATSV    | FlightAware TSV format |
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aomsir/dump1090-server/modes"
+	"github.com/aomsir/dump1090-server/rtlsdr"
 )
 
 func TestModeACDisabledByDefault(t *testing.T) {
@@ -702,14 +703,26 @@ func TestDCFilterFlagSelectsStatefulConverter(t *testing.T) {
 	}()
 
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
-	os.Args = []string{"test", "--dcfilter"}
+	os.Args = []string{"test", "--net-only", "--dcfilter"}
 	config, err := ParseFlagsFromSet(flag.CommandLine, os.Args[1:])
 	if err != nil {
 		t.Fatalf("ParseFlagsFromSet returned error: %v", err)
 	}
 
 	if !config.DCFilter {
-		t.Error("--dcfilter should set DCFilter=true")
+		t.Fatal("--dcfilter should set DCFilter=true")
+	}
+
+	// Verify converter is created with DC filtering enabled (matching processInput behavior)
+	conv := rtlsdr.NewConverter(float64(config.SampleRate), config.DCFilter)
+	if !conv.DCFilterEnabled() {
+		t.Error("converter with DCFilter=true should have DC filtering enabled")
+	}
+
+	// Verify converter without DC filtering has DC filtering disabled
+	convNoDC := rtlsdr.NewConverter(float64(config.SampleRate), false)
+	if convNoDC.DCFilterEnabled() {
+		t.Error("converter with DCFilter=false should have DC filtering disabled")
 	}
 }
 
@@ -754,10 +767,31 @@ func TestInputFormatParsesUC8SC16AndSC16Q11(t *testing.T) {
 func TestInputFileDashUsesStdin(t *testing.T) {
 	config := DefaultConfig()
 	config.InputFile = "-"
-	config.NetOnly = true
 
-	if config.InputFile != "-" {
-		t.Error("InputFile should accept '-' for stdin")
+	reader, source, err := openInput(config)
+	if err != nil {
+		t.Fatalf("openInput with InputFile=\"-\" returned error: %v", err)
+	}
+	if source != "stdin" {
+		t.Errorf("openInput source = %q, want %q", source, "stdin")
+	}
+	if reader != os.Stdin {
+		t.Error("openInput with InputFile=\"-\" should return os.Stdin")
+	}
+
+	// Also test via Filename field
+	config2 := DefaultConfig()
+	config2.Filename = "-"
+
+	reader2, source2, err2 := openInput(config2)
+	if err2 != nil {
+		t.Fatalf("openInput with Filename=\"-\" returned error: %v", err2)
+	}
+	if source2 != "stdin" {
+		t.Errorf("openInput source = %q, want %q", source2, "stdin")
+	}
+	if reader2 != os.Stdin {
+		t.Error("openInput with Filename=\"-\" should return os.Stdin")
 	}
 }
 

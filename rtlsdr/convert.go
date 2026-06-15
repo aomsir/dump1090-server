@@ -39,10 +39,10 @@ func InitMagLUT() {
 
 // ConverterState holds DC blocking filter state
 type ConverterState struct {
-	dcA  float32 // DC block coefficient a
-	dcB  float32 // DC block coefficient b
-	z1I  float32 // IIR state for I
-	z1Q  float32 // IIR state for Q
+	dcA float32 // DC block coefficient a
+	dcB float32 // DC block coefficient b
+	z1I float32 // IIR state for I
+	z1Q float32 // IIR state for Q
 }
 
 // NewConverter creates a new converter state with optional DC blocking
@@ -226,6 +226,11 @@ func (s *ConverterState) ConvertSC16(iq []byte, mag []uint16) float64 {
 func (s *ConverterState) Reset() {
 	s.z1I = 0
 	s.z1Q = 0
+}
+
+// DCFilterEnabled reports whether this converter has DC blocking enabled.
+func (s *ConverterState) DCFilterEnabled() bool {
+	return s.dcA != 0
 }
 
 // ConvertSC16Q11 converts signed 16-bit IQ samples with Q11 scaling to magnitude

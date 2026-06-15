@@ -106,24 +106,24 @@ func DefaultConfig() *Config {
 		BeastInPorts: PortList{30004, 30104},
 
 		// Single-value input/output port defaults.
-		RawInPort:   defaultRawInPort,
-		HTTPPort:    defaultHTTPPort,
+		RawInPort:    defaultRawInPort,
+		HTTPPort:     defaultHTTPPort,
 		BeastOutPort: defaultBeastOutPort,
-		AVROutPort:  defaultAVROutPort,
-		SBSPort:     defaultSBSPort,
-		FATSVPort:   defaultFATSVPort,
+		AVROutPort:   defaultAVROutPort,
+		SBSPort:      defaultSBSPort,
+		FATSVPort:    defaultFATSVPort,
 
 		Gain:     defaultGain,
 		MaxRange: 300,
 
 		HeartbeatInterval: defaultHeartbeatInterval,
 
-		WriteJSONEvery:   1.0,
-		HistorySize:      120,
-		HistoryInterval:  30,
-		InteractiveRows:  22,
-		InteractiveTTL:   60,
-		EnableAGC:        false,
+		WriteJSONEvery:  1.0,
+		HistorySize:     120,
+		HistoryInterval: 30,
+		InteractiveRows: 22,
+		InteractiveTTL:  60,
+		EnableAGC:       false,
 	}
 }
 
@@ -139,7 +139,7 @@ func ParseFlagsFromSet(fs *flag.FlagSet, args []string) (*Config, error) {
 	rate := fs.Uint("rate", defaultSampleRate, "Sample rate in Hz")
 	fs.IntVar(&config.Gain, "gain", defaultGain, "Tuner gain in tenths of dB (-1 for auto)")
 	fs.IntVar(&config.PPMCorrection, "ppm", 0, "PPM frequency correction")
-		fs.BoolVar(&config.EnableAGC, "agc", false, "Enable RTL2832 AGC")
+	fs.BoolVar(&config.EnableAGC, "agc", false, "Enable RTL2832 AGC")
 	fs.BoolVar(&config.EnableBiasTee, "bias-tee", false, "Enable bias tee")
 
 	// Input source

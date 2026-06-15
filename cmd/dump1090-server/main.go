@@ -111,11 +111,11 @@ type Config struct {
 	EnableBiasTee bool
 
 	// Input source
-	InputFile   string
-	Filename    string
-	InputFormat string // UC8, SC16, SC16Q11 (default UC8)
-	DCFilter    bool   // Enable DC blocking filter
-	Throttle    bool   // Throttle file replay to realtime
+	InputFile    string
+	Filename     string
+	InputFormat  string // UC8, SC16, SC16Q11 (default UC8)
+	DCFilter     bool   // Enable DC blocking filter
+	Throttle     bool   // Throttle file replay to realtime
 	DeviceSerial string // Select device by serial number
 
 	// Network output settings
@@ -181,18 +181,17 @@ type Config struct {
 	RTL1090         bool
 
 	// JSON file output settings
-	WriteJSON         string // Directory for JSON output
-	WriteJSONEvery    float64 // Interval in seconds for aircraft.json
-	HistorySize       int    // Number of history files
-	HistoryInterval   int    // Interval in seconds for history files
-	LocationAccuracy  int    // 0=none, 1=rough, 2=exact
+	WriteJSON        string  // Directory for JSON output
+	WriteJSONEvery   float64 // Interval in seconds for aircraft.json
+	HistorySize      int     // Number of history files
+	HistoryInterval  int     // Interval in seconds for history files
+	LocationAccuracy int     // 0=none, 1=rough, 2=exact
 }
-
 
 // App holds the application state
 type App struct {
-	config      *Config
-	tracker     *modes.Tracker
+	config         *Config
+	tracker        *modes.Tracker
 	demod          *modes.Demodulator
 	statsCollector *modes.StatsCollector
 	converter      *rtlsdr.ConverterState
@@ -316,7 +315,6 @@ func main() {
 		}
 		app.cancel()
 	}()
-
 
 	// Start network services (only when --net or --net-only is set)
 	if config.EnableNet {
@@ -534,7 +532,6 @@ func (app *App) handleMessage(mm *modes.Message) {
 	}
 }
 
-
 func (app *App) broadcastMessage(mm *modes.Message, aircraft *modes.Aircraft) {
 	dest := modes.ForwardingDestination(mm, app.config.NetVerbatim, app.config.ForwardMLAT)
 
@@ -736,7 +733,6 @@ func (app *App) runPeriodicTasks() {
 	}
 }
 
-
 // runRawInputServer listens for raw/AVR format messages on port 30001
 func (app *App) runRawInputServer() {
 	defer app.wg.Done()
@@ -775,7 +771,6 @@ func (app *App) runRawInputServer() {
 // handleRawInputConnection handles a single raw/AVR input connection
 func (app *App) handleRawInputConnection(conn net.Conn) {
 	defer conn.Close()
-
 
 	reader := make([]byte, 4096)
 	var buffer []byte
@@ -892,7 +887,6 @@ func (app *App) runBeastInputServerOnPort(port int) {
 // handleBeastInputConnection handles a single Beast input connection
 func (app *App) handleBeastInputConnection(conn net.Conn) {
 	defer conn.Close()
-
 
 	reader := make([]byte, 4096)
 	var buffer []byte

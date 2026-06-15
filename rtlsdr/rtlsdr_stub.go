@@ -14,14 +14,14 @@ var ErrNoCGO = errors.New("rtlsdr: compiled without cgo support")
 
 // Common errors
 var (
-	ErrNotFound      = errors.New("rtlsdr: device not found")
-	ErrAccessDenied  = errors.New("rtlsdr: access denied")
-	ErrDeviceBusy    = errors.New("rtlsdr: device busy")
-	ErrInvalidParam  = errors.New("rtlsdr: invalid parameter")
-	ErrNotSupported  = errors.New("rtlsdr: not supported")
-	ErrNoMemory      = errors.New("rtlsdr: no memory")
-	ErrLibUSB        = errors.New("rtlsdr: libusb error")
-	ErrUnknown       = errors.New("rtlsdr: unknown error")
+	ErrNotFound     = errors.New("rtlsdr: device not found")
+	ErrAccessDenied = errors.New("rtlsdr: access denied")
+	ErrDeviceBusy   = errors.New("rtlsdr: device busy")
+	ErrInvalidParam = errors.New("rtlsdr: invalid parameter")
+	ErrNotSupported = errors.New("rtlsdr: not supported")
+	ErrNoMemory     = errors.New("rtlsdr: no memory")
+	ErrLibUSB       = errors.New("rtlsdr: libusb error")
+	ErrUnknown      = errors.New("rtlsdr: unknown error")
 )
 
 // TunerType represents the tuner chip type
@@ -142,14 +142,14 @@ func (d *Device) CancelAsync() error { return ErrNoCGO }
 
 // DeviceConfig holds configuration for opening and setting up a device
 type DeviceConfig struct {
-	Index          int
-	Frequency      uint32
-	SampleRate     uint32
-	Gain           int
-	PPMCorrection  int
-	EnableAGC      bool
-	EnableBiasTee  bool
-	DeviceSerial   string
+	Index         int
+	Frequency     uint32
+	SampleRate    uint32
+	Gain          int
+	PPMCorrection int
+	EnableAGC     bool
+	EnableBiasTee bool
+	DeviceSerial  string
 }
 
 // DefaultConfig returns the default configuration for ADS-B reception

@@ -37,14 +37,14 @@ import (
 
 // Common errors
 var (
-	ErrNotFound      = errors.New("rtlsdr: device not found")
-	ErrAccessDenied  = errors.New("rtlsdr: access denied")
-	ErrDeviceBusy    = errors.New("rtlsdr: device busy")
-	ErrInvalidParam  = errors.New("rtlsdr: invalid parameter")
-	ErrNotSupported  = errors.New("rtlsdr: not supported")
-	ErrNoMemory      = errors.New("rtlsdr: no memory")
-	ErrLibUSB        = errors.New("rtlsdr: libusb error")
-	ErrUnknown       = errors.New("rtlsdr: unknown error")
+	ErrNotFound     = errors.New("rtlsdr: device not found")
+	ErrAccessDenied = errors.New("rtlsdr: access denied")
+	ErrDeviceBusy   = errors.New("rtlsdr: device busy")
+	ErrInvalidParam = errors.New("rtlsdr: invalid parameter")
+	ErrNotSupported = errors.New("rtlsdr: not supported")
+	ErrNoMemory     = errors.New("rtlsdr: no memory")
+	ErrLibUSB       = errors.New("rtlsdr: libusb error")
+	ErrUnknown      = errors.New("rtlsdr: unknown error")
 )
 
 // TunerType represents the tuner chip type
@@ -558,14 +558,14 @@ func translateError(code int) error {
 
 // DeviceConfig holds configuration for opening and setting up a device
 type DeviceConfig struct {
-	Index          int
-	Frequency      uint32 // Center frequency in Hz (default: 1090MHz)
-	SampleRate     uint32 // Sample rate in Hz (default: 2400000)
-	Gain           int    // Gain in tenths of dB, -1 for auto
-	PPMCorrection  int    // Frequency correction in PPM
-	EnableAGC      bool   // Enable RTL2832 AGC
-	EnableBiasTee  bool   // Enable bias tee
-	DeviceSerial   string // Select device by serial number (or prefix/suffix)
+	Index         int
+	Frequency     uint32 // Center frequency in Hz (default: 1090MHz)
+	SampleRate    uint32 // Sample rate in Hz (default: 2400000)
+	Gain          int    // Gain in tenths of dB, -1 for auto
+	PPMCorrection int    // Frequency correction in PPM
+	EnableAGC     bool   // Enable RTL2832 AGC
+	EnableBiasTee bool   // Enable bias tee
+	DeviceSerial  string // Select device by serial number (or prefix/suffix)
 }
 
 // DefaultConfig returns the default configuration for ADS-B reception

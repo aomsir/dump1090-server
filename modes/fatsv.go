@@ -142,6 +142,8 @@ func (w *FATSVWriter) WriteFATSV() []byte {
 		line := w.formatAircraftFATSV(a, now)
 		if line != nil {
 			output.Write(line)
+			// Update real tracker state (not just the copy)
+			w.tracker.MarkFATSVEmitted(a.Addr, now)
 		}
 	}
 
@@ -382,9 +384,8 @@ func (w *FATSVWriter) formatAircraftFATSV(a *Aircraft, now uint64) []byte {
 
 	buf.WriteString("\n")
 
-	// Update last emitted time (this should be done by the caller, but doing it here is safer)
-	// Note: In actual use, the tracker should update this field
-	a.FATSVLastEmitted = now
+	// Update last emitted time is handled by WriteFATSV via tracker.MarkFATSVEmitted
+	// (operates on real tracker state, not the copy returned by GetAllAircraft)
 
 	return buf.Bytes()
 }

@@ -90,6 +90,19 @@ func (t *Tracker) GetAircraft(addr uint32) *Aircraft {
 	return nil
 }
 
+// MarkFATSVEmitted updates the FATSVLastEmitted timestamp on the real aircraft
+// state (not a copy). This is used by FATSV periodic output to track emission
+// state on the actual tracked aircraft rather than on copies returned by
+// GetAllAircraft().
+func (t *Tracker) MarkFATSVEmitted(addr uint32, now uint64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if a, ok := t.aircraft[addr]; ok {
+		a.FATSVLastEmitted = now
+	}
+}
+
 // GetAllAircraft returns a snapshot of all tracked aircraft.
 func (t *Tracker) GetAllAircraft() []*Aircraft {
 	t.mu.RLock()

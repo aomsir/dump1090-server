@@ -205,6 +205,10 @@ func ParseFlagsFromSet(fs *flag.FlagSet, args []string) (*Config, error) {
 	fs.BoolVar(&config.EnableNet, "net", false, "Enable networking (start HTTP, Beast, AVR, SBS, FATSV servers)")
 	fs.BoolVar(&config.NetOnly, "net-only", false, "Network only mode, no RTL-SDR device (implies --net)")
 
+	// Network forwarding policy
+	fs.BoolVar(&config.ForwardMLAT, "forward-mlat", false, "Forward MLAT messages to Beast output")
+	fs.BoolVar(&config.NetVerbatim, "net-verbatim", false, "Forward 2-bit-corrected messages")
+
 	// Heartbeat
 	heartbeatSec := fs.Int("heartbeat-interval", 60, "Output client heartbeat interval in seconds (0 to disable)")
 

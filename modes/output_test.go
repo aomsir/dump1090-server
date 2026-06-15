@@ -2,6 +2,7 @@ package modes
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -240,78 +241,193 @@ func TestEncodeAVR(t *testing.T) {
 }
 
 func TestEncodeSBS(t *testing.T) {
-	// DF17 with callsign
-	msg := &Message{
-		Msg:           [14]byte{0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3, 0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98},
-		MsgBits:       112,
-		MsgType:       17,
-		Addr:          0x4840D6,
-		CallsignValid: true,
-		Callsign:      [9]byte{'K', 'L', 'M', '1', '0', '2', '3', ' ', 0},
+	tests := []struct {
+		name    string
+		msg     *Message
+		wantMsg int // expected SBS MSG type
+		want    []string
+		notWant []string
+	}{
+		{
+			name: "DF17 callsign",
+			msg: &Message{
+				Msg:           [14]byte{0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3, 0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98},
+				MsgBits:       112,
+				MsgType:       17,
+				Addr:          0x4840D6,
+				CallsignValid: true,
+				Callsign:      [9]byte{'K', 'L', 'M', '1', '0', '2', '3', ' ', 0},
+			},
+			wantMsg: 1,
+			want:    []string{"MSG,1,", "4840D6", "KLM1023"},
+		},
+		{
+			name: "DF17 altitude",
+			msg: &Message{
+				Msg:           [14]byte{0x8D, 0x48, 0x40, 0xD6},
+				MsgBits:       112,
+				MsgType:       17,
+				Addr:          0x4840D6,
+				AltitudeValid: true,
+				Altitude:      35000,
+			},
+			wantMsg: 3,
+			want:    []string{"MSG,3,", "4840D6", "35000"},
+		},
+		{
+			name: "DF17 velocity",
+			msg: &Message{
+				Msg:          [14]byte{0x8D, 0x48, 0x40, 0xD6},
+				MsgBits:      112,
+				MsgType:      17,
+				Addr:         0x4840D6,
+				SpeedValid:   true,
+				Speed:        450,
+				HeadingValid: true,
+				Heading:      180,
+			},
+			wantMsg: 4,
+			want:    []string{"MSG,4,", "4840D6", "450", "180"},
+		},
+		{
+			name: "DF4 altitude only",
+			msg: &Message{
+				Msg:           [14]byte{0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+				MsgBits:       56,
+				MsgType:       4,
+				Addr:          0x4840D6,
+				AltitudeValid: true,
+				Altitude:      12000,
+			},
+			wantMsg: 3,
+			want:    []string{"MSG,3,", "4840D6", "12000"},
+		},
+		{
+			name: "DF5 squawk only",
+			msg: &Message{
+				Msg:         [14]byte{0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+				MsgBits:     56,
+				MsgType:     5,
+				Addr:        0x4840D6,
+				SquawkValid: true,
+				Squawk:      0x1234,
+			},
+			wantMsg: 6,
+			want:    []string{"MSG,6,", "4840D6", "1234"},
+		},
+		{
+			name: "DF11 all-call reply with altitude",
+			msg: &Message{
+				Msg:           [14]byte{0x5D, 0x48, 0x40, 0xD6, 0xC3, 0x85, 0x81},
+				MsgBits:       56,
+				MsgType:       11,
+				Addr:          0x4840D6,
+				AltitudeValid: true,
+				Altitude:      8000,
+			},
+			wantMsg: 3,
+			want:    []string{"MSG,3,", "4840D6", "8000"},
+		},
+		{
+			name: "DF20 altitude from Comm-B",
+			msg: &Message{
+				Msg:           [14]byte{0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+				MsgBits:       112,
+				MsgType:       20,
+				Addr:          0x4840D6,
+				AltitudeValid: true,
+				Altitude:      25000,
+			},
+			wantMsg: 3,
+			want:    []string{"MSG,3,", "4840D6", "25000"},
+		},
+		{
+			name: "DF21 squawk from Comm-B",
+			msg: &Message{
+				Msg:         [14]byte{0xA8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+				MsgBits:     112,
+				MsgType:     21,
+				Addr:        0x4840D6,
+				SquawkValid: true,
+				Squawk:      0x7700,
+			},
+			wantMsg: 6,
+			want:    []string{"MSG,6,", "4840D6", "7700"},
+		},
+		{
+			name: "DF18 callsign with position",
+			msg: &Message{
+				Msg:           [14]byte{0x90, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3, 0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98},
+				MsgBits:       112,
+				MsgType:       18,
+				Addr:          0x4840D6,
+				CallsignValid: true,
+				Callsign:      [9]byte{'U', 'A', 'L', '1', '2', '3', ' ', ' ', 0},
+				AltitudeValid: true,
+				Altitude:      38000,
+			},
+			wantMsg: 1,
+			want:    []string{"MSG,1,", "4840D6", "UAL123"},
+		},
+		{
+			name:    "nil message returns empty",
+			msg:     nil,
+			wantMsg: 0,
+			notWant: []string{"MSG,"},
+		},
+		{
+			name: "unhandled DF type returns empty",
+			msg: &Message{
+				Msg:     [14]byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+				MsgBits: 56,
+				MsgType: 0,
+				Addr:    0x4840D6,
+			},
+			wantMsg: 0,
+			notWant: []string{"MSG,"},
+		},
 	}
 
-	result := EncodeSBS(msg, nil)
-	if result == "" {
-		t.Fatal("Expected non-empty SBS output")
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := EncodeSBS(tt.msg, nil)
 
-	// Check format
-	if !strings.HasPrefix(result, "MSG,1,") {
-		t.Errorf("SBS output should start with MSG,1, for callsign message, got: %s", result)
-	}
+			if tt.wantMsg == 0 {
+				if result != "" {
+					t.Errorf("Expected empty result, got %q", result)
+				}
+				return
+			}
 
-	if !strings.Contains(result, "4840D6") {
-		t.Errorf("SBS output should contain ICAO address, got: %s", result)
-	}
+			if result == "" {
+				t.Fatal("Expected non-empty SBS output")
+			}
 
-	if !strings.Contains(result, "KLM1023") {
-		t.Errorf("SBS output should contain callsign, got: %s", result)
-	}
-}
+			// Verify CRLF line endings
+			if !strings.HasSuffix(result, "\r\n") {
+				t.Errorf("SBS output must end with CRLF (\\r\\n), got suffix %q", result[len(result)-4:])
+			}
 
-func TestEncodeSBSAltitude(t *testing.T) {
-	msg := &Message{
-		Msg:           [14]byte{0x8D, 0x48, 0x40, 0xD6},
-		MsgBits:       112,
-		MsgType:       17,
-		Addr:          0x4840D6,
-		AltitudeValid: true,
-		Altitude:      35000,
-	}
+			// Verify MSG type prefix
+			prefix := fmt.Sprintf("MSG,%d,", tt.wantMsg)
+			if !strings.HasPrefix(result, prefix) {
+				t.Errorf("Expected prefix %q, got %q", prefix, result[:20])
+			}
 
-	result := EncodeSBS(msg, nil)
-	if !strings.HasPrefix(result, "MSG,3,") {
-		t.Errorf("SBS output should start with MSG,3, for altitude message, got: %s", result)
-	}
+			// Verify expected content
+			for _, want := range tt.want {
+				if !strings.Contains(result, want) {
+					t.Errorf("Expected output to contain %q, got %q", want, result)
+				}
+			}
 
-	if !strings.Contains(result, "35000") {
-		t.Errorf("SBS output should contain altitude, got: %s", result)
-	}
-}
-
-func TestEncodeSBSVelocity(t *testing.T) {
-	msg := &Message{
-		Msg:          [14]byte{0x8D, 0x48, 0x40, 0xD6},
-		MsgBits:      112,
-		MsgType:      17,
-		Addr:         0x4840D6,
-		SpeedValid:   true,
-		Speed:        450,
-		HeadingValid: true,
-		Heading:      180,
-	}
-
-	result := EncodeSBS(msg, nil)
-	if !strings.HasPrefix(result, "MSG,4,") {
-		t.Errorf("SBS output should start with MSG,4, for velocity message, got: %s", result)
-	}
-
-	if !strings.Contains(result, "450") {
-		t.Errorf("SBS output should contain speed, got: %s", result)
-	}
-
-	if !strings.Contains(result, "180") {
-		t.Errorf("SBS output should contain heading, got: %s", result)
+			// Verify excluded content
+			for _, notWant := range tt.notWant {
+				if strings.Contains(result, notWant) {
+					t.Errorf("Expected output NOT to contain %q, got %q", notWant, result)
+				}
+			}
+		})
 	}
 }
 
@@ -503,6 +619,115 @@ func TestMarshalAircraftJSON(t *testing.T) {
 	}
 	if !bytes.Contains(data, []byte(`"now"`)) {
 		t.Error("JSON should contain now field")
+	}
+}
+
+func TestForwardingPolicySuppressesMLATForRawAndSBS(t *testing.T) {
+	msg := &Message{
+		Msg:           [14]byte{0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3, 0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98},
+		MsgBits:       112,
+		MsgType:       17,
+		Addr:          0x4840D6,
+		Source:        SOURCE_MLAT,
+		AltitudeValid: true,
+		Altitude:      35000,
+	}
+
+	dest := ForwardingDestination(msg, false, false)
+	if dest&DestRaw != 0 {
+		t.Error("MLAT messages must NOT route to Raw output")
+	}
+	if dest&DestSBS != 0 {
+		t.Error("MLAT messages must NOT route to SBS output")
+	}
+}
+
+func TestForwardingPolicyAllowsMLATForBeastOnlyWhenEnabled(t *testing.T) {
+	msg := &Message{
+		Msg:     [14]byte{0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3, 0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98},
+		MsgBits: 112,
+		MsgType: 17,
+		Addr:    0x4840D6,
+		Source:  SOURCE_MLAT,
+	}
+
+	// MLAT disabled: Beast should be excluded
+	dest := ForwardingDestination(msg, false, false)
+	if dest&DestBeast != 0 {
+		t.Error("MLAT messages must NOT route to Beast when forward-mlat is disabled")
+	}
+
+	// MLAT enabled: Beast should be included
+	dest = ForwardingDestination(msg, false, true)
+	if dest&DestBeast == 0 {
+		t.Error("MLAT messages MUST route to Beast when forward-mlat is enabled")
+	}
+}
+
+func TestForwardingPolicySuppressesTwoBitCorrectedUnlessVerbatim(t *testing.T) {
+	msg := &Message{
+		Msg:       [14]byte{0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3, 0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98},
+		MsgBits:   112,
+		MsgType:   17,
+		Addr:      0x4840D6,
+		Source:    SOURCE_ADSB,
+		Corrected: 2,
+	}
+
+	// Without verbatim: should be suppressed
+	dest := ForwardingDestination(msg, false, false)
+	if dest != DestNone {
+		t.Errorf("2-bit corrected messages without verbatim should produce no destinations, got %v", dest)
+	}
+
+	// With verbatim: should be allowed
+	dest = ForwardingDestination(msg, true, false)
+	if dest == DestNone {
+		t.Error("2-bit corrected messages with verbatim should be forwarded")
+	}
+}
+
+func TestForwardingPolicyNormalADSBAllOutputs(t *testing.T) {
+	msg := &Message{
+		Msg:           [14]byte{0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3, 0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98},
+		MsgBits:       112,
+		MsgType:       17,
+		Addr:          0x4840D6,
+		Source:        SOURCE_ADSB,
+		AltitudeValid: true,
+		Altitude:      35000,
+	}
+
+	dest := ForwardingDestination(msg, false, false)
+	if dest&DestRaw == 0 {
+		t.Error("Normal ADSB should route to Raw")
+	}
+	if dest&DestBeast == 0 {
+		t.Error("Normal ADSB should route to Beast")
+	}
+	if dest&DestSBS == 0 {
+		t.Error("Normal ADSB should route to SBS")
+	}
+	if dest&DestFATSV == 0 {
+		t.Error("Normal ADSB should route to FATSV")
+	}
+}
+
+func TestForwardingPolicySingleBitCorrectedAllowed(t *testing.T) {
+	msg := &Message{
+		Msg:           [14]byte{0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3, 0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98},
+		MsgBits:       112,
+		MsgType:       17,
+		Addr:          0x4840D6,
+		Source:        SOURCE_ADSB,
+		Corrected:     1,
+		AltitudeValid: true,
+		Altitude:      35000,
+	}
+
+	dest := ForwardingDestination(msg, false, false)
+	if dest == DestNone {
+		t.Error("1-bit corrected messages should be forwarded")
 	}
 }
 

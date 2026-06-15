@@ -319,6 +319,50 @@ func GenerateReceiverJSON(version string, refreshInterval float64, historySize i
 	}
 }
 
+// Output destination bitmask for forwarding policy.
+type OutputDest int
+
+const (
+	DestNone  OutputDest = 0
+	DestRaw   OutputDest = 1 << 0
+	DestBeast OutputDest = 1 << 1
+	DestSBS   OutputDest = 1 << 2
+	DestFATSV OutputDest = 1 << 3
+)
+
+// ForwardingDestination determines which outputs should receive a message.
+// This is a pure function based on message properties and configuration.
+//
+// Rules:
+//   - MLAT messages (Source == SOURCE_MLAT) are suppressed for Raw, SBS, FATSV.
+//     They are forwarded to Beast only when forwardMLAT is true.
+//   - Two-bit-corrected messages (Corrected >= 2) are suppressed unless
+//     netVerbatim is true.
+//   - One-bit-corrected messages are forwarded normally.
+//   - All other messages are forwarded to all outputs.
+func ForwardingDestination(mm *Message, netVerbatim, forwardMLAT bool) OutputDest {
+	if mm == nil {
+		return DestNone
+	}
+
+	// Suppress 2-bit-corrected unless verbatim mode
+	if mm.Corrected >= 2 && !netVerbatim {
+		return DestNone
+	}
+
+	// MLAT messages: only Beast when forward-mlat enabled
+	if mm.Source == SOURCE_MLAT {
+		if forwardMLAT {
+			return DestBeast
+		}
+		return DestNone
+	}
+
+	// Normal message: all outputs
+	dest := DestRaw | DestBeast | DestSBS | DestFATSV
+	return dest
+}
+
 // AVR format encoding
 
 // EncodeAVR encodes a message in AVR format (ASCII hex with optional timestamp).
@@ -350,95 +394,6 @@ func EncodeAVR(mm *Message, includeTimestamp bool) string {
 		fmt.Fprintf(&buf, "%02X", mm.Msg[i])
 	}
 	buf.WriteByte(';')
-	buf.WriteByte('\n')
-
-	return buf.String()
-}
-
-// SBS-1 (BaseStation) format encoding
-
-// EncodeSBS encodes a message in SBS-1 BaseStation format.
-// This is a CSV format with fields separated by commas.
-func EncodeSBS(mm *Message, a *Aircraft) string {
-	if mm == nil {
-		return ""
-	}
-
-	// Only generate SBS for valid decoded messages
-	if mm.MsgType != 17 && mm.MsgType != 18 {
-		return ""
-	}
-
-	now := time.Now()
-	dateStr := now.Format("2006/01/02")
-	timeStr := now.Format("15:04:05.000")
-
-	var msgType int
-	var buf bytes.Buffer
-
-	// Determine SBS message type based on content
-	if mm.CallsignValid {
-		msgType = 1 // ES Identification
-	} else if mm.AltitudeValid {
-		msgType = 3 // ES Airborne Position
-	} else if mm.SpeedValid || mm.HeadingValid {
-		msgType = 4 // ES Airborne Velocity
-	} else {
-		return "" // No useful content
-	}
-
-	// MSG,type,1,1,hex,1,date,time,date,time,callsign,alt,gs,track,lat,lon,vr,squawk,alert,emerg,spi,ground
-	fmt.Fprintf(&buf, "MSG,%d,1,1,%06X,1,%s,%s,%s,%s,",
-		msgType, mm.Addr, dateStr, timeStr, dateStr, timeStr)
-
-	// Callsign
-	if mm.CallsignValid {
-		callsign := string(bytes.TrimRight(mm.Callsign[:], "\x00 "))
-		buf.WriteString(callsign)
-	}
-	buf.WriteByte(',')
-
-	// Altitude
-	if mm.AltitudeValid {
-		fmt.Fprintf(&buf, "%d", mm.Altitude)
-	}
-	buf.WriteByte(',')
-
-	// Ground speed
-	if mm.SpeedValid {
-		fmt.Fprintf(&buf, "%d", mm.Speed)
-	}
-	buf.WriteByte(',')
-
-	// Track
-	if mm.HeadingValid {
-		fmt.Fprintf(&buf, "%d", mm.Heading)
-	}
-	buf.WriteByte(',')
-
-	// Position
-	if mm.CPRDecoded {
-		fmt.Fprintf(&buf, "%.6f,%.6f", mm.DecodedLat, mm.DecodedLon)
-	} else {
-		buf.WriteString(",")
-	}
-	buf.WriteByte(',')
-
-	// Vertical rate
-	if mm.VertRateValid {
-		fmt.Fprintf(&buf, "%d", mm.VertRate)
-	}
-	buf.WriteByte(',')
-
-	// Squawk
-	if mm.SquawkValid {
-		fmt.Fprintf(&buf, "%04X", mm.Squawk)
-	}
-	buf.WriteByte(',')
-
-	// Alert, Emergency, SPI, Ground (not available in most messages)
-	buf.WriteString(",,,")
-
 	buf.WriteByte('\n')
 
 	return buf.String()

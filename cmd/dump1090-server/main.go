@@ -137,6 +137,10 @@ type Config struct {
 	EnableNet bool // --net: enable networking
 	NetOnly   bool // --net-only: network only, no RTL/file input (implies --net)
 
+	// Network forwarding policy
+	ForwardMLAT bool // --forward-mlat: forward MLAT messages to Beast output
+	NetVerbatim bool // --net-verbatim: forward 2-bit-corrected messages
+
 	// Network bind address
 	NetBindAddress string
 
@@ -511,21 +515,23 @@ func (app *App) handleMessage(mm *modes.Message) {
 
 
 func (app *App) broadcastMessage(mm *modes.Message, aircraft *modes.Aircraft) {
+	dest := modes.ForwardingDestination(mm, app.config.NetVerbatim, app.config.ForwardMLAT)
+
 	// Beast output
-	if !app.config.DisableBeast {
+	if !app.config.DisableBeast && dest&modes.DestBeast != 0 {
 		beastData := modes.EncodeBeast(mm)
 		app.beastSvc.Broadcast(beastData)
 	}
 
 	// AVR output
-	if !app.config.DisableAVR {
+	if !app.config.DisableAVR && dest&modes.DestRaw != 0 {
 		// C version defaults to no timestamp (only in MLAT mode)
 		avrData := modes.EncodeAVR(mm, false)
 		app.avrSvc.Broadcast([]byte(avrData))
 	}
 
 	// SBS output
-	if !app.config.DisableSBS {
+	if !app.config.DisableSBS && dest&modes.DestSBS != 0 {
 		sbsData := modes.EncodeSBS(mm, aircraft)
 		if sbsData != "" {
 			app.sbsSvc.Broadcast([]byte(sbsData))
@@ -534,7 +540,7 @@ func (app *App) broadcastMessage(mm *modes.Message, aircraft *modes.Aircraft) {
 
 	// FATSV event output (matching C version net_io.c:1470-1475)
 	// Only for specific message types that trigger immediate output
-	if !app.config.DisableFATSV && aircraft != nil {
+	if !app.config.DisableFATSV && dest&modes.DestFATSV != 0 && aircraft != nil {
 		fatsvEvent := app.fatsvWriter.WriteFATSVEvent(mm, aircraft)
 		if fatsvEvent != nil {
 			app.fatsvSvc.Broadcast(fatsvEvent)

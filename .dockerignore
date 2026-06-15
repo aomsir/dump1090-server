@@ -12,7 +12,7 @@
 *~
 
 # Build artifacts
-dump1090go
+/bin/
 *.exe
 *.test
 *.out
@@ -39,7 +39,7 @@ docker-compose.yml
 # Worktrees (not needed in container)
 .worktrees/
 
-# Generated data
+# Generated runtime output (--write-json)
 *.json
 
 # Test data

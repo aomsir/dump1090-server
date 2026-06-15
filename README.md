@@ -10,8 +10,8 @@ A pure Go implementation of dump1090, a Mode S ADS-B decoder for RTL-SDR devices
 - **Multiple output formats** - Beast, AVR, SBS, FATSV, JSON
 - **Network I/O** - TCP servers for data output and input
 - **Interactive display** - Real-time TTY aircraft list
-- **JSON file output** - Compatible with dump1090-mutability web interface
-- **Docker support** - Minimal container image
+- **JSON file output** - dump1090-mutability compatible format (no bundled WebUI)
+- **Docker support** - Minimal container image (network-only by default)
 
 ## Installation
 
@@ -308,6 +308,11 @@ This implementation maintains bit-exact compatibility with dump1090-mutability:
 - Integer fields: Exact match
 - Float fields: < 0.000001 error tolerance
 - Output formats: Protocol-compatible with existing tools
+- JSON schema: dump1090-mutability compatible (use external tools like tar1090 for visualization)
+
+**Not supported:** WebUI / browser-based map display. The upstream `public_html/`
+assets are not included. Use an external visualizer (e.g., [tar1090](https://github.com/wiedehopf/tar1090))
+with the JSON API endpoints.
 
 ## License
 

@@ -656,4 +656,32 @@ func TestHTTPUnknownDataRouteReturns404(t *testing.T) {
 	}
 }
 
+func TestHTTPStatsJSONFallbackUsesFullSchema(t *testing.T) {
+	app := newTestApp(&Config{})
+	// jsonWriter is nil — should still return full schema
+	mux := app.newHTTPMux()
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/data/stats.json")
+	if err != nil {
+		t.Fatalf("GET /data/stats.json failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	var stats map[string]interface{}
+	if err := json.Unmarshal(body, &stats); err != nil {
+		t.Fatalf("stats.json is not valid JSON: %v\nbody: %s", err, string(body))
+	}
+
+	requiredKeys := []string{"latest", "last1min", "last5min", "last15min", "total"}
+	for _, key := range requiredKeys {
+		if _, ok := stats[key]; !ok {
+			t.Errorf("stats.json fallback missing required key %q", key)
+		}
+	}
+}
+
 func float64Ptr(f float64) *float64 { return &f }

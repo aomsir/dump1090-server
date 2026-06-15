@@ -58,7 +58,11 @@ func (app *App) handleReceiverJSON(w http.ResponseWriter, r *http.Request) {
 	}
 
 	receiver := modes.GenerateReceiverJSONWithAccuracy(params)
-	data, _ := json.MarshalIndent(receiver, "", "  ")
+	data, err := json.MarshalIndent(receiver, "", "  ")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.Write(data)
 }
 
@@ -70,10 +74,11 @@ func (app *App) handleStatsJSON(w http.ResponseWriter, r *http.Request) {
 		content := app.jsonWriter.GenerateStatsJSONBytes()
 		w.Write(content)
 	} else {
-		fmt.Fprintf(w, `{"messages":%d,"valid":%d,"decoded":%d}`,
+		data := modes.GenerateStatsJSONWithMessages(
 			atomic.LoadUint64(&app.totalMessages),
 			atomic.LoadUint64(&app.validMessages),
 			atomic.LoadUint64(&app.decodedMessages))
+		w.Write(data)
 	}
 }
 

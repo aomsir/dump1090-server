@@ -7,7 +7,9 @@
 package modes
 
 import (
+	"fmt"
 	"math"
+	"time"
 )
 
 // ReceiverJSONParams holds parameters for generating receiver.json.
@@ -41,4 +43,65 @@ func GenerateReceiverJSONWithAccuracy(params ReceiverJSONParams) *ReceiverJSON {
 	}
 
 	return r
+}
+
+// GenerateStatsJSON generates stats.json content with the full schema
+// (latest, last1min, last5min, last15min, total). If sc is nil, produces
+// a minimal skeleton with empty blocks. This is the shared generator used
+// by both HTTP handlers and the file writer.
+func GenerateStatsJSON(sc *StatsCollector) []byte {
+	if sc == nil {
+		now := time.Now()
+		var buf []byte
+		buf = append(buf, fmt.Sprintf("{ \"latest\" : { \"start\" : %.1f, \"end\" : %.1f }",
+			float64(now.Unix()), float64(now.Unix()))...)
+		buf = append(buf, fmt.Sprintf(", \"last1min\" : { \"start\" : %.1f, \"end\" : %.1f }",
+			float64(now.Unix()), float64(now.Unix()))...)
+		buf = append(buf, ", \"last5min\" : { \"start\" : 0, \"end\" : 0 }"...)
+		buf = append(buf, ", \"last15min\" : { \"start\" : 0, \"end\" : 0 }"...)
+		buf = append(buf, ", \"total\" : { \"start\" : 0, \"end\" : 0 }"...)
+		buf = append(buf, "\n}\n"...)
+		return buf
+	}
+
+	latest := sc.GetLatest()
+	last5min := sc.GetLast5Min()
+	last15min := sc.GetLast15Min()
+	total := sc.GetAllTime()
+
+	buf := make([]byte, 0, 4096)
+	buf = append(buf, "{\n"...)
+	buf = append(buf, "  \"latest\" : "...)
+	buf = append(buf, formatStatsBlock(&latest, true)...)
+	buf = append(buf, ",\n"...)
+	buf = append(buf, "  \"last1min\" : "...)
+	buf = append(buf, formatStatsBlock(&latest, true)...)
+	buf = append(buf, ",\n"...)
+	buf = append(buf, "  \"last5min\" : "...)
+	buf = append(buf, formatStatsBlock(&last5min, false)...)
+	buf = append(buf, ",\n"...)
+	buf = append(buf, "  \"last15min\" : "...)
+	buf = append(buf, formatStatsBlock(&last15min, false)...)
+	buf = append(buf, ",\n"...)
+	buf = append(buf, "  \"total\" : "...)
+	buf = append(buf, formatStatsBlock(&total, false)...)
+	buf = append(buf, "\n}\n"...)
+	return buf
+}
+
+// GenerateStatsJSONWithMessages is a convenience wrapper for callers that
+// only have message counters and no StatsCollector. It produces a minimal
+// full-schema stats JSON with the counters embedded in the total block.
+func GenerateStatsJSONWithMessages(totalMessages, validMessages, decodedMessages uint64) []byte {
+	now := time.Now()
+	var buf []byte
+	buf = append(buf, fmt.Sprintf("{ \"latest\" : { \"start\" : %.1f, \"end\" : %.1f, \"messages\" : %d }",
+		float64(now.Unix()), float64(now.Unix()), totalMessages)...)
+	buf = append(buf, fmt.Sprintf(", \"last1min\" : { \"start\" : %.1f, \"end\" : %.1f, \"messages\" : %d }",
+		float64(now.Unix()), float64(now.Unix()), totalMessages)...)
+	buf = append(buf, fmt.Sprintf(", \"last5min\" : { \"start\" : 0, \"end\" : 0, \"messages\" : %d }", totalMessages)...)
+	buf = append(buf, fmt.Sprintf(", \"last15min\" : { \"start\" : 0, \"end\" : 0, \"messages\" : %d }", totalMessages)...)
+	buf = append(buf, fmt.Sprintf(", \"total\" : { \"start\" : 0, \"end\" : 0, \"messages\" : %d }", totalMessages)...)
+	buf = append(buf, "\n}\n"...)
+	return buf
 }

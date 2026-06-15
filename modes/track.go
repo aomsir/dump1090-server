@@ -103,6 +103,78 @@ func (t *Tracker) MarkFATSVEmitted(addr uint32, now uint64) {
 	}
 }
 
+// FATSVEmittedState captures the emitted field values set during FATSV periodic
+// formatting. These are persisted on the real tracked aircraft (not copies) so
+// that change detection works correctly on subsequent calls.
+type FATSVEmittedState struct {
+	Altitude      int
+	AltitudeGNSS  int
+	Heading       uint32
+	HeadingMag    uint32
+	Speed         uint32
+	SpeedIAS      uint32
+	SpeedTAS      uint32
+	AirGround     AirGround
+}
+
+// MarkFATSVPeriodicEmitted updates all FATSV emitted fields on the real tracked
+// aircraft in a single lock acquisition. Called after formatAircraftFATSV
+// produces output so that change detection persists across calls.
+func (t *Tracker) MarkFATSVPeriodicEmitted(addr uint32, state FATSVEmittedState, now uint64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if a, ok := t.aircraft[addr]; ok {
+		a.FATSVLastEmitted = now
+		a.FATSVEmittedAltitude = state.Altitude
+		a.FATSVEmittedAltitudeGNSS = state.AltitudeGNSS
+		a.FATSVEmittedHeading = state.Heading
+		a.FATSVEmittedHeadingMag = state.HeadingMag
+		a.FATSVEmittedSpeed = state.Speed
+		a.FATSVEmittedSpeedIAS = state.SpeedIAS
+		a.FATSVEmittedSpeedTAS = state.SpeedTAS
+		a.FATSVEmittedAirGround = state.AirGround
+	}
+}
+
+// CheckAndMarkFATSVEvent atomically checks whether an event's data has changed
+// since the last emission and, if so, marks it as emitted. Returns true if the
+// event should be emitted (i.e., the data is new). The caller must provide the
+// event kind identifier and the raw data bytes.
+// This avoids race conditions from reading and writing event-emitted fields
+// outside the tracker lock.
+func (t *Tracker) CheckAndMarkFATSVEvent(addr uint32, eventKind string, data [7]byte) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	a, ok := t.aircraft[addr]
+	if !ok {
+		return false
+	}
+
+	var stored *[7]byte
+	switch eventKind {
+	case "bds10":
+		stored = &a.FATSVEmittedBDS10
+	case "bds30":
+		stored = &a.FATSVEmittedBDS30
+	case "es_acas_ra":
+		stored = &a.FATSVEmittedESACASRA
+	case "es_op_status":
+		stored = &a.FATSVEmittedESStatus
+	case "es_target":
+		stored = &a.FATSVEmittedESTarget
+	default:
+		return false
+	}
+
+	if data == *stored {
+		return false
+	}
+	*stored = data
+	return true
+}
+
 // GetAllAircraft returns a snapshot of all tracked aircraft.
 func (t *Tracker) GetAllAircraft() []*Aircraft {
 	t.mu.RLock()

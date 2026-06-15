@@ -44,22 +44,33 @@ func NewFATSVWriter(tracker *Tracker) *FATSVWriter {
 	}
 }
 
-// WriteFATSVEvent writes a FATSV event message for specific message types
-// This handles immediate output for specific interesting messages
-func (w *FATSVWriter) WriteFATSVEvent(mm *Message, a *Aircraft) []byte {
-	// Only handle specific message types that should trigger immediate output
+// WriteFATSVEvent writes a FATSV event message for specific message types.
+// This handles immediate output for specific interesting messages.
+// Event gating (deduplication) and state updates are handled atomically by the
+// tracker to avoid race conditions.
+func (w *FATSVWriter) WriteFATSVEvent(mm *Message) []byte {
+	if mm == nil {
+		return nil
+	}
+
 	// DF20/21 Comm-B: check for BDS 1,0 or BDS 3,0
 	if mm.MsgType == 20 || mm.MsgType == 21 {
 		if len(mm.MB) >= 7 {
 			// BDS 1,0 (datalink capabilities)
-			if mm.MB[0] == 0x10 && !bytes.Equal(mm.MB[:7], a.FATSVEmittedBDS10[:]) {
-				copy(a.FATSVEmittedBDS10[:], mm.MB[:7])
-				return w.writeFATSVEventMessage(mm, "datalink_caps", mm.MB[:7])
+			if mm.MB[0] == 0x10 {
+				var data [7]byte
+				copy(data[:], mm.MB[:7])
+				if w.tracker.CheckAndMarkFATSVEvent(mm.Addr, "bds10", data) {
+					return w.writeFATSVEventMessage(mm, "datalink_caps", mm.MB[:7])
+				}
 			}
 			// BDS 3,0 (ACAS RA)
-			if mm.MB[0] == 0x30 && !bytes.Equal(mm.MB[:7], a.FATSVEmittedBDS30[:]) {
-				copy(a.FATSVEmittedBDS30[:], mm.MB[:7])
-				return w.writeFATSVEventMessage(mm, "commb_acas_ra", mm.MB[:7])
+			if mm.MB[0] == 0x30 {
+				var data [7]byte
+				copy(data[:], mm.MB[:7])
+				if w.tracker.CheckAndMarkFATSVEvent(mm.Addr, "bds30", data) {
+					return w.writeFATSVEventMessage(mm, "commb_acas_ra", mm.MB[:7])
+				}
 			}
 		}
 	}
@@ -68,20 +79,28 @@ func (w *FATSVWriter) WriteFATSVEvent(mm *Message, a *Aircraft) []byte {
 	if mm.MsgType == 17 || mm.MsgType == 18 {
 		if len(mm.ME) >= 7 {
 			// ME type 28 subtype 2: ACAS RA broadcast
-			if mm.METype == 28 && mm.MESub == 2 && !bytes.Equal(mm.ME[:7], a.FATSVEmittedESACASRA[:]) {
-				// Initial byte should be 0xE2
-				copy(a.FATSVEmittedESACASRA[:], mm.ME[:7])
-				return w.writeFATSVEventMessage(mm, "es_acas_ra", mm.ME[:7])
+			if mm.METype == 28 && mm.MESub == 2 {
+				var data [7]byte
+				copy(data[:], mm.ME[:7])
+				if w.tracker.CheckAndMarkFATSVEvent(mm.Addr, "es_acas_ra", data) {
+					return w.writeFATSVEventMessage(mm, "es_acas_ra", mm.ME[:7])
+				}
 			}
 			// ME type 31 subtype 0/1: operational status
-			if mm.METype == 31 && (mm.MESub == 0 || mm.MESub == 1) && !bytes.Equal(mm.ME[:7], a.FATSVEmittedESStatus[:]) {
-				copy(a.FATSVEmittedESStatus[:], mm.ME[:7])
-				return w.writeFATSVEventMessage(mm, "es_op_status", mm.ME[:7])
+			if mm.METype == 31 && (mm.MESub == 0 || mm.MESub == 1) {
+				var data [7]byte
+				copy(data[:], mm.ME[:7])
+				if w.tracker.CheckAndMarkFATSVEvent(mm.Addr, "es_op_status", data) {
+					return w.writeFATSVEventMessage(mm, "es_op_status", mm.ME[:7])
+				}
 			}
 			// ME type 29 subtype 0/1: target state and status
-			if mm.METype == 29 && (mm.MESub == 0 || mm.MESub == 1) && !bytes.Equal(mm.ME[:7], a.FATSVEmittedESTarget[:]) {
-				copy(a.FATSVEmittedESTarget[:], mm.ME[:7])
-				return w.writeFATSVEventMessage(mm, "es_target", mm.ME[:7])
+			if mm.METype == 29 && (mm.MESub == 0 || mm.MESub == 1) {
+				var data [7]byte
+				copy(data[:], mm.ME[:7])
+				if w.tracker.CheckAndMarkFATSVEvent(mm.Addr, "es_target", data) {
+					return w.writeFATSVEventMessage(mm, "es_target", mm.ME[:7])
+				}
 			}
 		}
 	}
@@ -139,19 +158,35 @@ func (w *FATSVWriter) WriteFATSV() []byte {
 			continue
 		}
 
-		line := w.formatAircraftFATSV(a, now)
+		line, emittedState := w.formatAircraftFATSV(a, now)
 		if line != nil {
 			output.Write(line)
-			// Update real tracker state (not just the copy)
-			w.tracker.MarkFATSVEmitted(a.Addr, now)
+			// Persist all emitted fields on real tracker state (not just the copy)
+			w.tracker.MarkFATSVPeriodicEmitted(a.Addr, emittedState, now)
 		}
 	}
 
 	return output.Bytes()
 }
 
-// formatAircraftFATSV formats a single aircraft's FATSV output
-func (w *FATSVWriter) formatAircraftFATSV(a *Aircraft, now uint64) []byte {
+// formatAircraftFATSV formats a single aircraft's FATSV output.
+// Returns the formatted line and the emitted field state. Callers must persist
+// the emitted state on the real tracker (via MarkFATSVPeriodicEmitted) so that
+// change detection works on subsequent calls.
+func (w *FATSVWriter) formatAircraftFATSV(a *Aircraft, now uint64) ([]byte, FATSVEmittedState) {
+	// Track emitted state locally; start with current emitted values so
+	// unchanged fields carry forward when persisted on real tracker.
+	emitted := FATSVEmittedState{
+		Altitude:     a.FATSVEmittedAltitude,
+		AltitudeGNSS: a.FATSVEmittedAltitudeGNSS,
+		Heading:      a.FATSVEmittedHeading,
+		HeadingMag:   a.FATSVEmittedHeadingMag,
+		Speed:        a.FATSVEmittedSpeed,
+		SpeedIAS:     a.FATSVEmittedSpeedIAS,
+		SpeedTAS:     a.FATSVEmittedSpeedTAS,
+		AirGround:    a.FATSVEmittedAirGround,
+	}
+
 	// Determine what data is valid and fresh
 	altValid := dataValidEx(&a.AltitudeValid, now, 15000, SOURCE_MODE_S)
 	altGNSSValid := dataValidEx(&a.AltitudeGNSSValid, now, 15000, SOURCE_MODE_S_CHECKED)
@@ -224,7 +259,7 @@ func (w *FATSVWriter) formatAircraftFATSV(a *Aircraft, now uint64) []byte {
 	}
 
 	if (now - a.FATSVLastEmitted) < minAge {
-		return nil
+		return nil, emitted
 	}
 
 	// Build FATSV output
@@ -272,7 +307,7 @@ func (w *FATSVWriter) formatAircraftFATSV(a *Aircraft, now uint64) []byte {
 	// Altitude (barometric)
 	if altValid && a.AltitudeValid.Updated > a.FATSVLastEmitted {
 		buf.WriteString(fmt.Sprintf("\talt\t%d", a.Altitude))
-		a.FATSVEmittedAltitude = a.Altitude
+		emitted.Altitude = a.Altitude
 		useful = true
 		if a.AltitudeValid.Source == SOURCE_TISB {
 			tisb |= TISB_ALTITUDE
@@ -282,7 +317,7 @@ func (w *FATSVWriter) formatAircraftFATSV(a *Aircraft, now uint64) []byte {
 	// Altitude (GNSS)
 	if altGNSSValid && a.AltitudeGNSSValid.Updated > a.FATSVLastEmitted {
 		buf.WriteString(fmt.Sprintf("\talt_gnss\t%d", a.AltitudeGNSS))
-		a.FATSVEmittedAltitudeGNSS = a.AltitudeGNSS
+		emitted.AltitudeGNSS = a.AltitudeGNSS
 		useful = true
 		if a.AltitudeGNSSValid.Source == SOURCE_TISB {
 			tisb |= TISB_ALTITUDE_GNSS
@@ -292,7 +327,7 @@ func (w *FATSVWriter) formatAircraftFATSV(a *Aircraft, now uint64) []byte {
 	// Ground speed
 	if speedValid && a.SpeedValid.Updated > a.FATSVLastEmitted {
 		buf.WriteString(fmt.Sprintf("\tspeed\t%d", a.Speed))
-		a.FATSVEmittedSpeed = a.Speed
+		emitted.Speed = a.Speed
 		useful = true
 		if a.SpeedValid.Source == SOURCE_TISB {
 			tisb |= TISB_SPEED
@@ -302,7 +337,7 @@ func (w *FATSVWriter) formatAircraftFATSV(a *Aircraft, now uint64) []byte {
 	// IAS
 	if speedIASValid && a.SpeedIASValid.Updated > a.FATSVLastEmitted {
 		buf.WriteString(fmt.Sprintf("\tspeed_ias\t%d", a.SpeedIAS))
-		a.FATSVEmittedSpeedIAS = a.SpeedIAS
+		emitted.SpeedIAS = a.SpeedIAS
 		useful = true
 		if a.SpeedIASValid.Source == SOURCE_TISB {
 			tisb |= TISB_SPEED_IAS
@@ -312,7 +347,7 @@ func (w *FATSVWriter) formatAircraftFATSV(a *Aircraft, now uint64) []byte {
 	// TAS
 	if speedTASValid && a.SpeedTASValid.Updated > a.FATSVLastEmitted {
 		buf.WriteString(fmt.Sprintf("\tspeed_tas\t%d", a.SpeedTAS))
-		a.FATSVEmittedSpeedTAS = a.SpeedTAS
+		emitted.SpeedTAS = a.SpeedTAS
 		useful = true
 		if a.SpeedTASValid.Source == SOURCE_TISB {
 			tisb |= TISB_SPEED_TAS
@@ -331,7 +366,7 @@ func (w *FATSVWriter) formatAircraftFATSV(a *Aircraft, now uint64) []byte {
 	// True heading
 	if headingValid && a.HeadingValid.Updated > a.FATSVLastEmitted {
 		buf.WriteString(fmt.Sprintf("\theading\t%d", a.Heading))
-		a.FATSVEmittedHeading = a.Heading
+		emitted.Heading = a.Heading
 		useful = true
 		if a.HeadingValid.Source == SOURCE_TISB {
 			tisb |= TISB_HEADING
@@ -341,7 +376,7 @@ func (w *FATSVWriter) formatAircraftFATSV(a *Aircraft, now uint64) []byte {
 	// Magnetic heading
 	if headingMagValid && a.HeadingMagneticValid.Updated > a.FATSVLastEmitted {
 		buf.WriteString(fmt.Sprintf("\theading_magnetic\t%d", a.HeadingMagnetic))
-		a.FATSVEmittedHeadingMag = a.HeadingMagnetic
+		emitted.HeadingMag = a.HeadingMagnetic
 		useful = true
 		if a.HeadingMagneticValid.Source == SOURCE_TISB {
 			tisb |= TISB_HEADING_MAGNETIC
@@ -356,7 +391,7 @@ func (w *FATSVWriter) formatAircraftFATSV(a *Aircraft, now uint64) []byte {
 		} else {
 			buf.WriteString("\tairGround\tA+")
 		}
-		a.FATSVEmittedAirGround = a.AirGround
+		emitted.AirGround = a.AirGround
 		useful = true
 		if a.AirGroundValid.Source == SOURCE_TISB {
 			tisb |= TISB_AIRGROUND
@@ -374,7 +409,7 @@ func (w *FATSVWriter) formatAircraftFATSV(a *Aircraft, now uint64) []byte {
 
 	// If nothing useful, don't emit
 	if !useful {
-		return nil
+		return nil, emitted
 	}
 
 	// TIS-B flags
@@ -384,10 +419,7 @@ func (w *FATSVWriter) formatAircraftFATSV(a *Aircraft, now uint64) []byte {
 
 	buf.WriteString("\n")
 
-	// Update last emitted time is handled by WriteFATSV via tracker.MarkFATSVEmitted
-	// (operates on real tracker state, not the copy returned by GetAllAircraft)
-
-	return buf.Bytes()
+	return buf.Bytes(), emitted
 }
 
 // Helper functions

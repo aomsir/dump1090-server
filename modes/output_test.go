@@ -299,8 +299,8 @@ func TestEncodeSBS(t *testing.T) {
 				AltitudeValid: true,
 				Altitude:      12000,
 			},
-			wantMsg: 3,
-			want:    []string{"MSG,3,", "4840D6", "12000"},
+			wantMsg: 5,
+			want:    []string{"MSG,5,", "4840D6", "12000"},
 		},
 		{
 			name: "DF5 squawk only",
@@ -325,8 +325,8 @@ func TestEncodeSBS(t *testing.T) {
 				AltitudeValid: true,
 				Altitude:      8000,
 			},
-			wantMsg: 3,
-			want:    []string{"MSG,3,", "4840D6", "8000"},
+			wantMsg: 8,
+			want:    []string{"MSG,8,", "4840D6", "8000"},
 		},
 		{
 			name: "DF20 altitude from Comm-B",
@@ -640,6 +640,12 @@ func TestForwardingPolicySuppressesMLATForRawAndSBS(t *testing.T) {
 	if dest&DestSBS != 0 {
 		t.Error("MLAT messages must NOT route to SBS output")
 	}
+	if dest&DestFATSV != 0 {
+		t.Error("MLAT messages must NOT route to FATSV output")
+	}
+	if dest&DestBeast != 0 {
+		t.Error("MLAT messages must NOT route to Beast when forward-mlat is disabled")
+	}
 }
 
 func TestForwardingPolicyAllowsMLATForBeastOnlyWhenEnabled(t *testing.T) {
@@ -680,10 +686,11 @@ func TestForwardingPolicySuppressesTwoBitCorrectedUnlessVerbatim(t *testing.T) {
 		t.Errorf("2-bit corrected messages without verbatim should produce no destinations, got %v", dest)
 	}
 
-	// With verbatim: should be allowed
+	// With verbatim: should forward to all outputs
 	dest = ForwardingDestination(msg, true, false)
-	if dest == DestNone {
-		t.Error("2-bit corrected messages with verbatim should be forwarded")
+	wantDest := DestRaw | DestBeast | DestSBS | DestFATSV
+	if dest != wantDest {
+		t.Errorf("2-bit corrected with verbatim: expected %v, got %v", wantDest, dest)
 	}
 }
 

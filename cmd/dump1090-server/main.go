@@ -540,8 +540,8 @@ func (app *App) broadcastMessage(mm *modes.Message, aircraft *modes.Aircraft) {
 
 	// FATSV event output (matching C version net_io.c:1470-1475)
 	// Only for specific message types that trigger immediate output
-	if !app.config.DisableFATSV && dest&modes.DestFATSV != 0 && aircraft != nil {
-		fatsvEvent := app.fatsvWriter.WriteFATSVEvent(mm, aircraft)
+	if !app.config.DisableFATSV && dest&modes.DestFATSV != 0 {
+		fatsvEvent := app.fatsvWriter.WriteFATSVEvent(mm)
 		if fatsvEvent != nil {
 			app.fatsvSvc.Broadcast(fatsvEvent)
 		}

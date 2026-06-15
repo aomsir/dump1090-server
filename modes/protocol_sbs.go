@@ -135,7 +135,7 @@ func sbsMessageType(mm *Message) int {
 	case 4:
 		// DF4: Surveillance Reply, Altitude
 		if mm.AltitudeValid {
-			return 3
+			return 5
 		}
 		return 0
 
@@ -147,11 +147,8 @@ func sbsMessageType(mm *Message) int {
 		return 0
 
 	case 11:
-		// DF11: All-call reply - may have altitude
-		if mm.AltitudeValid {
-			return 3
-		}
-		return 0
+		// DF11: All-call reply
+		return 8
 
 	case 17, 18:
 		// DF17/18: Extended Squitter - prioritize by content

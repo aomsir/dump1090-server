@@ -42,21 +42,19 @@ func (app *App) handleReceiverJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	var params modes.ReceiverJSONParams
-	params.Version = "1.0.0"
+	params := modes.ReceiverJSONParams{
+		Version:          "1.0.0",
+		Lat:              app.config.Latitude,
+		Lon:              app.config.Longitude,
+		LocationAccuracy: app.config.LocationAccuracy,
+	}
 
 	if app.jsonWriter != nil {
 		params.RefreshMs = app.jsonWriter.GetJSONInterval()
 		params.History = app.jsonWriter.GetHistoryCount()
-		params.Lat = app.config.Latitude
-		params.Lon = app.config.Longitude
-		params.LocationAccuracy = app.config.LocationAccuracy
 	} else {
 		params.RefreshMs = 1000
 		params.History = 120
-		params.Lat = app.config.Latitude
-		params.Lon = app.config.Longitude
-		params.LocationAccuracy = app.config.LocationAccuracy
 	}
 
 	receiver := modes.GenerateReceiverJSONWithAccuracy(params)

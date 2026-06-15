@@ -603,11 +603,6 @@ func (w *JSONWriter) GetHistoryJSON(index int) []byte {
 	return w.history[index].Content
 }
 
-// GetHistorySize returns the configured history size
-func (w *JSONWriter) GetHistorySize() int {
-	return w.historySize
-}
-
 // GetJSONInterval returns the configured JSON interval in milliseconds
 func (w *JSONWriter) GetJSONInterval() int {
 	return w.jsonInterval

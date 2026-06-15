@@ -17,7 +17,7 @@ func TestNewJSONWriter(t *testing.T) {
 	var totalMessages uint64
 
 	cfg := JSONWriterConfig{
-		Dir:             "/tmp/test-json",
+		Dir:             t.TempDir(),
 		JSONInterval:    500,  // 500ms
 		HistorySize:     10,
 		HistoryInterval: 5000, // 5s
@@ -42,7 +42,7 @@ func TestJSONWriterMinInterval(t *testing.T) {
 
 	// Test minimum interval enforcement
 	cfg := JSONWriterConfig{
-		Dir:          "/tmp/test-json",
+		Dir:          t.TempDir(),
 		JSONInterval: 50, // Below minimum
 	}
 
@@ -59,7 +59,7 @@ func TestJSONWriterDefaults(t *testing.T) {
 
 	// Test default values
 	cfg := JSONWriterConfig{
-		Dir: "/tmp/test-json",
+		Dir: t.TempDir(),
 	}
 
 	w := NewJSONWriter(cfg, tracker, &totalMessages)
@@ -80,7 +80,7 @@ func TestJSONWriterGenerateAircraftJSON(t *testing.T) {
 	var totalMessages uint64 = 100
 
 	cfg := JSONWriterConfig{
-		Dir:     "/tmp/test-json",
+		Dir:     t.TempDir(),
 		Version: "1.0.0",
 	}
 
@@ -105,7 +105,7 @@ func TestJSONWriterGenerateReceiverJSON(t *testing.T) {
 	var totalMessages uint64
 
 	cfg := JSONWriterConfig{
-		Dir:              "/tmp/test-json",
+		Dir:              t.TempDir(),
 		Version:          "1.0.0",
 		ReceiverLat:      51.5074,
 		ReceiverLon:      -0.1278,
@@ -135,12 +135,7 @@ func TestJSONWriterGenerateReceiverJSON(t *testing.T) {
 }
 
 func TestWriteJsonToFile(t *testing.T) {
-	// Create temp directory
-	tmpDir, err := os.MkdirTemp("", "dump1090-json-test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	tracker := NewTracker()
 	var totalMessages uint64
@@ -154,7 +149,7 @@ func TestWriteJsonToFile(t *testing.T) {
 
 	// Write a test file
 	content := []byte(`{"test": "data"}`)
-	err = w.writeJsonToFile("test.json", content)
+	err := w.writeJsonToFile("test.json", content)
 	if err != nil {
 		t.Fatalf("writeJsonToFile failed: %v", err)
 	}
@@ -171,12 +166,7 @@ func TestWriteJsonToFile(t *testing.T) {
 }
 
 func TestWriteInitialFiles(t *testing.T) {
-	// Create temp directory
-	tmpDir, err := os.MkdirTemp("", "dump1090-json-test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	tracker := NewTracker()
 	var totalMessages uint64
@@ -201,12 +191,7 @@ func TestWriteInitialFiles(t *testing.T) {
 }
 
 func TestPeriodicUpdate(t *testing.T) {
-	// Create temp directory
-	tmpDir, err := os.MkdirTemp("", "dump1090-json-test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	tracker := NewTracker()
 	var totalMessages uint64
@@ -289,7 +274,7 @@ func TestJSONWriterHistoryCount(t *testing.T) {
 	var totalMessages uint64
 
 	cfg := JSONWriterConfig{
-		Dir:         "/tmp/test-json",
+		Dir:         t.TempDir(),
 		HistorySize: 5,
 	}
 
@@ -302,11 +287,7 @@ func TestJSONWriterHistoryCount(t *testing.T) {
 }
 
 func TestWriteInitialFilesWritesStatsJSON(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "dump1090-json-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	tracker := NewTracker()
 	var totalMessages uint64
@@ -330,7 +311,7 @@ func TestJSONStatsFullSchema(t *testing.T) {
 
 	sc := NewStatsCollector()
 	w := NewJSONWriter(JSONWriterConfig{
-		Dir:     "/tmp/test-json",
+		Dir:     t.TempDir(),
 		Version: "1.0.0",
 	}, tracker, &totalMessages)
 	w.SetStatsCollector(sc)

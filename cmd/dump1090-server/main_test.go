@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -423,17 +424,25 @@ func TestHTTPHistoryRouteMatchesHistoryFiles(t *testing.T) {
 	app.jsonWriter = modes.NewJSONWriter(modes.JSONWriterConfig{
 		Dir:             tmpDir,
 		HistorySize:     10,
-		HistoryInterval: 100, // 100ms for fast test
+		HistoryInterval: 50, // 50ms for fast test
 		Version:         "1.0.0",
 	}, app.tracker, &app.totalMessages)
 	app.jsonWriter.SetStatsCollector(app.statsCollector)
 	app.jsonWriter.WriteInitialFiles()
 
-	// Wait for history interval and trigger update
-	time.Sleep(150 * time.Millisecond)
-	app.jsonWriter.PeriodicUpdate()
+	// Poll until history_0.json appears or timeout
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		app.jsonWriter.PeriodicUpdate()
+		if _, err := os.Stat(filepath.Join(tmpDir, "history_0.json")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for history_0.json")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
-	// Now test that the HTTP handler serves history_0.json
 	mux := app.newHTTPMux()
 	ts := httptest.NewServer(mux)
 	defer ts.Close()

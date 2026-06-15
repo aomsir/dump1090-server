@@ -309,6 +309,10 @@ type ReceiverJSON struct {
 }
 
 // GenerateReceiverJSON generates the receiver status JSON.
+//
+// Deprecated: Use GenerateReceiverJSONWithAccuracy for new code. This function
+// does not support location accuracy and uses seconds for refresh instead of
+// milliseconds. It is retained only for backward compatibility with existing tests.
 func GenerateReceiverJSON(version string, refreshInterval float64, historySize int, lat, lon float64) *ReceiverJSON {
 	return &ReceiverJSON{
 		Version: version,

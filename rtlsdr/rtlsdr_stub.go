@@ -160,7 +160,7 @@ func DefaultConfig() DeviceConfig {
 		SampleRate:    2400000,
 		Gain:          -1,
 		PPMCorrection: 0,
-		EnableAGC:     true,
+		EnableAGC:     false,
 		EnableBiasTee: false,
 	}
 }

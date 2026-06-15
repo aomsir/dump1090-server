@@ -576,7 +576,7 @@ func DefaultConfig() DeviceConfig {
 		SampleRate:    2400000,    // 2.4 MHz
 		Gain:          -1,         // Auto
 		PPMCorrection: 0,
-		EnableAGC:     true,
+		EnableAGC:     false,
 		EnableBiasTee: false,
 	}
 }

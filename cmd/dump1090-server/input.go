@@ -32,15 +32,17 @@ func openInput(config *Config) (io.ReadCloser, string, error) {
 }
 
 // convertSamples converts IQ samples to magnitude based on input format.
-// Returns total power.
+// Returns total power. Format must be one of UC8, SC16, SC16Q11 (validated at config time).
 func convertSamples(converter *rtlsdr.ConverterState, iq []byte, mag []uint16, format string) float64 {
 	switch format {
+	case "UC8":
+		return converter.ConvertUC8(iq, mag)
 	case "SC16":
 		return converter.ConvertSC16(iq, mag)
 	case "SC16Q11":
 		return converter.ConvertSC16Q11(iq, mag)
-	default: // UC8
-		return converter.ConvertUC8(iq, mag)
+	default:
+		panic("convertSamples: unreachable format (config validation should reject): " + format)
 	}
 }
 

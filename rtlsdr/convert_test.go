@@ -272,3 +272,10 @@ func BenchmarkMagLUTLookup(b *testing.B) {
 		_ = magLUT[uint16(i&0xFF)<<8|uint16((i>>8)&0xFF)]
 	}
 }
+
+func TestDefaultConfigAGCOff(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.EnableAGC {
+		t.Error("DefaultConfig().EnableAGC should be false (AGC off by default)")
+	}
+}

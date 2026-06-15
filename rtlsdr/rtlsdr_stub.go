@@ -1,3 +1,4 @@
+//go:build !cgo
 // +build !cgo
 
 // Package rtlsdr provides Go bindings to librtlsdr for RTL-SDR USB devices.
@@ -71,6 +72,12 @@ func GetDeviceUSBStrings(index int) (vendor, product, serial string, err error) 
 // GetIndexBySerial finds a device index by serial number
 func GetIndexBySerial(serial string) (int, error) { return -1, ErrNoCGO }
 
+// FindDeviceBySerial finds a device index by serial number with prefix/suffix matching
+func FindDeviceBySerial(serial string) (int, error) { return -1, ErrNoCGO }
+
+// NearestGain finds the nearest supported gain value to the requested gain
+func NearestGain(dev *Device, requestedGain int) (int, error) { return requestedGain, ErrNoCGO }
+
 // ListDevices returns information about all connected RTL-SDR devices
 func ListDevices() []DeviceInfo { return nil }
 
@@ -142,6 +149,7 @@ type DeviceConfig struct {
 	PPMCorrection  int
 	EnableAGC      bool
 	EnableBiasTee  bool
+	DeviceSerial   string
 }
 
 // DefaultConfig returns the default configuration for ADS-B reception

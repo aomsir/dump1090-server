@@ -111,8 +111,12 @@ type Config struct {
 	EnableBiasTee bool
 
 	// Input source
-	InputFile string
-	Filename  string
+	InputFile   string
+	Filename    string
+	InputFormat string // UC8, SC16, SC16Q11 (default UC8)
+	DCFilter    bool   // Enable DC blocking filter
+	Throttle    bool   // Throttle file replay to realtime
+	DeviceSerial string // Select device by serial number
 
 	// Network output settings
 	HTTPPort     int
@@ -400,6 +404,7 @@ func (app *App) processRTLSDR() error {
 		PPMCorrection: app.config.PPMCorrection,
 		EnableAGC:     app.config.EnableAGC,
 		EnableBiasTee: app.config.EnableBiasTee,
+		DeviceSerial:  app.config.DeviceSerial,
 	}
 
 	var err error
@@ -419,8 +424,8 @@ func (app *App) processRTLSDR() error {
 		log.Printf("Gain: Auto")
 	}
 
-	// Create converter
-	app.converter = rtlsdr.NewConverter(float64(app.config.SampleRate), true)
+	// Create converter with DC filtering based on config
+	app.converter = rtlsdr.NewConverter(float64(app.config.SampleRate), app.config.DCFilter)
 
 	// Set up demodulator message handler
 	app.demod.SetMessageHandler(app.handleMessage)
@@ -449,7 +454,12 @@ func (app *App) processRTLSDR() error {
 
 func (app *App) handleSamples(iq []byte) {
 	// Convert IQ to magnitude, capturing total power
-	totalPower := rtlsdr.ConvertUC8NoDC(iq, app.magBuf.Data[overlapSamples:])
+	var totalPower float64
+	if app.config.DCFilter && app.converter != nil {
+		totalPower = app.converter.ConvertUC8(iq, app.magBuf.Data[overlapSamples:])
+	} else {
+		totalPower = rtlsdr.ConvertUC8NoDC(iq, app.magBuf.Data[overlapSamples:])
+	}
 	app.magBuf.TotalPower = totalPower
 
 	// Demodulate Mode S (overlap region Data[:overlapSamples] still holds
@@ -577,65 +587,15 @@ func (app *App) logMessage(mm *modes.Message, aircraft *modes.Aircraft) {
 }
 
 func (app *App) processFile(filename string) error {
-	file, err := os.Open(filename)
+	reader, source, err := openInput(app.config)
 	if err != nil {
-		return fmt.Errorf("failed to open file: %w", err)
+		return err
 	}
-	defer file.Close()
-
-	log.Printf("Reading from file: %s", filename)
-
-	// Create converter
-	app.converter = rtlsdr.NewConverter(float64(app.config.SampleRate), true)
-
-	// Set up demodulator message handler
-	app.demod.SetMessageHandler(app.handleMessage)
-
-	// Allocate buffers
-	bufSize := 256 * 1024 * 2 // 256K samples
-	iqBuf := make([]byte, bufSize)
-	app.magBuf = &modes.MagBuf{
-		Data:   make([]uint16, bufSize/2+overlapSamples),
-		Length: uint32(bufSize / 2),
+	if closer, ok := reader.(io.Closer); ok && reader != os.Stdin {
+		defer closer.Close()
 	}
 
-	for {
-		select {
-		case <-app.ctx.Done():
-			return nil
-		default:
-		}
-
-		n, err := file.Read(iqBuf)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("read error: %w", err)
-		}
-
-		// Convert IQ to magnitude, capturing total power
-		totalPower := rtlsdr.ConvertUC8NoDC(iqBuf[:n], app.magBuf.Data[overlapSamples:])
-		app.magBuf.Length = uint32(n / 2)
-		app.magBuf.TotalPower = totalPower
-
-		// Demodulate Mode S (overlap region still holds previous tail)
-		app.demod.Demodulate2400(app.magBuf)
-
-		// Demodulate Mode A/C (only when --modeac is set)
-		if app.config.ModeAC {
-			app.demod.Demodulate2400AC(app.magBuf)
-		}
-
-		// Save tail of current data as overlap for the next buffer.
-		// Guard against short reads: if Length < overlapSamples the source
-		// region still contains stale previous overlap, so skip the copy.
-		if app.magBuf.Length >= overlapSamples {
-			copy(app.magBuf.Data[:overlapSamples], app.magBuf.Data[app.magBuf.Length:])
-		}
-	}
-
-	return nil
+	return app.processInput(reader, source, app.config.InputFormat)
 }
 
 func (app *App) runHTTPServer() {

@@ -123,7 +123,7 @@ func DefaultConfig() *Config {
 		HistoryInterval:  30,
 		InteractiveRows:  22,
 		InteractiveTTL:   60,
-		EnableAGC:        true,
+		EnableAGC:        false,
 	}
 }
 
@@ -139,12 +139,16 @@ func ParseFlagsFromSet(fs *flag.FlagSet, args []string) (*Config, error) {
 	rate := fs.Uint("rate", defaultSampleRate, "Sample rate in Hz")
 	fs.IntVar(&config.Gain, "gain", defaultGain, "Tuner gain in tenths of dB (-1 for auto)")
 	fs.IntVar(&config.PPMCorrection, "ppm", 0, "PPM frequency correction")
-	fs.BoolVar(&config.EnableAGC, "agc", true, "Enable RTL2832 AGC")
+		fs.BoolVar(&config.EnableAGC, "agc", false, "Enable RTL2832 AGC")
 	fs.BoolVar(&config.EnableBiasTee, "bias-tee", false, "Enable bias tee")
 
 	// Input source
 	fs.StringVar(&config.InputFile, "infile", "", "Read samples from file")
 	fs.StringVar(&config.Filename, "filename", "", "Read samples from file (alias)")
+	fs.StringVar(&config.InputFormat, "iformat", "UC8", "Input format: UC8, SC16, SC16Q11")
+	fs.BoolVar(&config.DCFilter, "dcfilter", false, "Enable DC blocking filter")
+	fs.BoolVar(&config.Throttle, "throttle", false, "Throttle file replay to realtime speed")
+	fs.StringVar(&config.DeviceSerial, "device-serial", "", "Select device by serial number (or prefix/suffix)")
 
 	// Network output settings
 	fs.IntVar(&config.HTTPPort, "http-port", defaultHTTPPort, "HTTP server port")
@@ -227,6 +231,20 @@ func ParseFlagsFromSet(fs *flag.FlagSet, args []string) (*Config, error) {
 	// --net-only implies --net
 	if config.NetOnly {
 		config.EnableNet = true
+	}
+
+	// Validate input format
+	config.InputFormat = strings.ToUpper(config.InputFormat)
+	switch config.InputFormat {
+	case "UC8", "SC16", "SC16Q11":
+		// valid
+	default:
+		return nil, fmt.Errorf("unsupported input format %q (supported: UC8, SC16, SC16Q11)", config.InputFormat)
+	}
+
+	// Validate sample rate - demod only supports 2.4MHz
+	if config.SampleRate != 2400000 && !config.NetOnly {
+		return nil, fmt.Errorf("unsupported sample rate %d Hz (demod requires 2400000 Hz)", config.SampleRate)
 	}
 
 	// If --stats-every is set, enable stats

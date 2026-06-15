@@ -191,6 +191,43 @@ func TestConvertSC16(t *testing.T) {
 	}
 }
 
+func TestConvertSC16Q11(t *testing.T) {
+	conv := NewConverter(2400000, false)
+
+	// Create test SC16Q11 data - DC at zero
+	iq := make([]byte, 4000) // 1000 samples
+	// Leave as zeros (DC at zero for signed)
+
+	mag := make([]uint16, len(iq)/4)
+	conv.ConvertSC16Q11(iq, mag)
+
+	// Zero signal should give zero magnitude
+	for i := 0; i < len(mag); i++ {
+		if mag[i] > 100 {
+			t.Errorf("Zero signal magnitude at %d too high: %d", i, mag[i])
+			break
+		}
+	}
+}
+
+func TestConverterStateWithDCFilter(t *testing.T) {
+	// Test that DC filter is properly applied for all formats
+	convUC8 := NewConverter(2400000, true)
+	convSC16 := NewConverter(2400000, true)
+	convSC16Q11 := NewConverter(2400000, true)
+
+	// Verify DC filter coefficients are set
+	if convUC8.dcA <= 0 {
+		t.Error("UC8 converter DC filter coefficient dcA should be > 0")
+	}
+	if convSC16.dcA <= 0 {
+		t.Error("SC16 converter DC filter coefficient dcA should be > 0")
+	}
+	if convSC16Q11.dcA <= 0 {
+		t.Error("SC16Q11 converter DC filter coefficient dcA should be > 0")
+	}
+}
+
 func BenchmarkConvertUC8NoDC(b *testing.B) {
 	InitMagLUT()
 

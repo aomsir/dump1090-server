@@ -1,3 +1,4 @@
+//go:build cgo
 // +build cgo
 
 // Package rtlsdr provides Go bindings to librtlsdr for RTL-SDR USB devices.
@@ -21,8 +22,8 @@ package rtlsdr
 // Callback wrapper for async reading
 extern void goAsyncCallback(unsigned char *buf, uint32_t len, void *ctx);
 
-static inline void rtlsdr_read_async_wrapper(rtlsdr_dev_t *dev, void *ctx, uint32_t buf_num, uint32_t buf_len) {
-    rtlsdr_read_async(dev, (rtlsdr_read_async_cb_t)goAsyncCallback, ctx, buf_num, buf_len);
+static inline int rtlsdr_read_async_wrapper(rtlsdr_dev_t *dev, void *ctx, uint32_t buf_num, uint32_t buf_len) {
+    return rtlsdr_read_async(dev, (rtlsdr_read_async_cb_t)goAsyncCallback, ctx, buf_num, buf_len);
 }
 */
 import "C"
@@ -143,16 +144,80 @@ func GetDeviceUSBStrings(index int) (vendor, product, serial string, err error) 
 		nil
 }
 
-// GetIndexBySerial finds a device index by serial number
-func GetIndexBySerial(serial string) (int, error) {
-	cSerial := C.CString(serial)
-	defer C.free(unsafe.Pointer(cSerial))
-
-	ret := C.rtlsdr_get_index_by_serial(cSerial)
-	if ret < 0 {
-		return -1, translateError(int(ret))
+// FindDeviceBySerial finds a device index by serial number.
+// Supports exact match, prefix match (serial ends with '-'), and suffix match (serial starts with '-').
+// Returns the device index or -1 if not found.
+func FindDeviceBySerial(serial string) (int, error) {
+	count := GetDeviceCount()
+	if count == 0 {
+		return -1, ErrNotFound
 	}
-	return int(ret), nil
+
+	// Try exact match first
+	idx, err := GetIndexBySerial(serial)
+	if err == nil {
+		return idx, nil
+	}
+
+	// Check for prefix/suffix patterns
+	isPrefix := len(serial) > 0 && serial[len(serial)-1] == '-'
+	isSuffix := len(serial) > 0 && serial[0] == '-'
+
+	if isPrefix || isSuffix {
+		pattern := serial
+		if isPrefix {
+			pattern = serial[:len(serial)-1]
+		} else {
+			pattern = serial[1:]
+		}
+
+		for i := 0; i < count; i++ {
+			_, _, devSerial, err := GetDeviceUSBStrings(i)
+			if err != nil {
+				continue
+			}
+			if isPrefix && len(devSerial) >= len(pattern) && devSerial[:len(pattern)] == pattern {
+				return i, nil
+			}
+			if isSuffix && len(devSerial) >= len(pattern) && devSerial[len(devSerial)-len(pattern):] == pattern {
+				return i, nil
+			}
+		}
+	}
+
+	return -1, ErrNotFound
+}
+
+// NearestGain finds the nearest supported gain value to the requested gain.
+// Returns the nearest gain in tenths of dB, or the requested gain if no gains are available.
+func NearestGain(dev *Device, requestedGain int) (int, error) {
+	gains, err := dev.GetTunerGains()
+	if err != nil {
+		return requestedGain, err
+	}
+	if len(gains) == 0 {
+		return requestedGain, nil
+	}
+
+	nearest := gains[0]
+	minDiff := abs(gains[0] - requestedGain)
+
+	for _, g := range gains[1:] {
+		diff := abs(g - requestedGain)
+		if diff < minDiff {
+			minDiff = diff
+			nearest = g
+		}
+	}
+
+	return nearest, nil
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 // ListDevices returns information about all connected RTL-SDR devices
@@ -411,7 +476,7 @@ func (d *Device) ReadSync(buf []byte) (int, error) {
 }
 
 // ReadAsync starts async reading with the given callback
-// This function blocks until CancelAsync is called
+// This function blocks until CancelAsync is called or an error occurs
 func (d *Device) ReadAsync(callback AsyncCallback, bufNum, bufLen uint32) error {
 	d.mu.Lock()
 	d.callback = callback
@@ -426,13 +491,16 @@ func (d *Device) ReadAsync(callback AsyncCallback, bufNum, bufLen uint32) error 
 	d.mu.Unlock()
 
 	// Start async reading (this blocks)
-	C.rtlsdr_read_async_wrapper(d.dev, unsafe.Pointer(id), C.uint32_t(bufNum), C.uint32_t(bufLen))
+	ret := C.rtlsdr_read_async_wrapper(d.dev, unsafe.Pointer(id), C.uint32_t(bufNum), C.uint32_t(bufLen))
 
 	// Clean up callback registration
 	callbackMu.Lock()
 	delete(callbackMap, id)
 	callbackMu.Unlock()
 
+	if ret != 0 {
+		return translateError(int(ret))
+	}
 	return nil
 }
 
@@ -497,6 +565,7 @@ type DeviceConfig struct {
 	PPMCorrection  int    // Frequency correction in PPM
 	EnableAGC      bool   // Enable RTL2832 AGC
 	EnableBiasTee  bool   // Enable bias tee
+	DeviceSerial   string // Select device by serial number (or prefix/suffix)
 }
 
 // DefaultConfig returns the default configuration for ADS-B reception
@@ -514,9 +583,19 @@ func DefaultConfig() DeviceConfig {
 
 // OpenWithConfig opens and configures a device with the given settings
 func OpenWithConfig(cfg DeviceConfig) (*Device, error) {
-	dev, err := Open(cfg.Index)
+	// Find device by serial if specified
+	index := cfg.Index
+	if cfg.DeviceSerial != "" {
+		foundIdx, err := FindDeviceBySerial(cfg.DeviceSerial)
+		if err != nil {
+			return nil, fmt.Errorf("device with serial %q not found: %w", cfg.DeviceSerial, err)
+		}
+		index = foundIdx
+	}
+
+	dev, err := Open(index)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open device %d: %w", cfg.Index, err)
+		return nil, fmt.Errorf("failed to open device %d: %w", index, err)
 	}
 
 	// Set gain mode
@@ -527,14 +606,20 @@ func OpenWithConfig(cfg DeviceConfig) (*Device, error) {
 			return nil, fmt.Errorf("failed to set auto gain mode: %w", err)
 		}
 	} else {
-		// Manual gain
+		// Manual gain - find nearest supported gain
+		nearestGain, err := NearestGain(dev, cfg.Gain)
+		if err != nil {
+			dev.Close()
+			return nil, fmt.Errorf("failed to get tuner gains: %w", err)
+		}
+
 		if err := dev.SetTunerGainMode(true); err != nil {
 			dev.Close()
 			return nil, fmt.Errorf("failed to set manual gain mode: %w", err)
 		}
-		if err := dev.SetTunerGain(cfg.Gain); err != nil {
+		if err := dev.SetTunerGain(nearestGain); err != nil {
 			dev.Close()
-			return nil, fmt.Errorf("failed to set gain to %d: %w", cfg.Gain, err)
+			return nil, fmt.Errorf("failed to set gain to %d: %w", nearestGain, err)
 		}
 	}
 
@@ -546,7 +631,7 @@ func OpenWithConfig(cfg DeviceConfig) (*Device, error) {
 		}
 	}
 
-	// Enable AGC if requested
+	// Enable AGC if requested (default off)
 	if cfg.EnableAGC {
 		if err := dev.SetAGCMode(true); err != nil {
 			dev.Close()

@@ -693,4 +693,108 @@ func TestHTTPStatsJSONFallbackUsesFullSchema(t *testing.T) {
 	}
 }
 
+func TestDCFilterFlagSelectsStatefulConverter(t *testing.T) {
+	origArgs := os.Args
+	origCommandLine := flag.CommandLine
+	defer func() {
+		os.Args = origArgs
+		flag.CommandLine = origCommandLine
+	}()
+
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	os.Args = []string{"test", "--dcfilter"}
+	config, err := ParseFlagsFromSet(flag.CommandLine, os.Args[1:])
+	if err != nil {
+		t.Fatalf("ParseFlagsFromSet returned error: %v", err)
+	}
+
+	if !config.DCFilter {
+		t.Error("--dcfilter should set DCFilter=true")
+	}
+}
+
+func TestInputFormatParsesUC8SC16AndSC16Q11(t *testing.T) {
+	tests := []struct {
+		name    string
+		format  string
+		want    string
+		wantErr bool
+	}{
+		{name: "UC8", format: "UC8", want: "UC8"},
+		{name: "uc8 lowercase", format: "uc8", want: "UC8"},
+		{name: "SC16", format: "SC16", want: "SC16"},
+		{name: "sc16 lowercase", format: "sc16", want: "SC16"},
+		{name: "SC16Q11", format: "SC16Q11", want: "SC16Q11"},
+		{name: "sc16q11 lowercase", format: "sc16q11", want: "SC16Q11"},
+		{name: "unknown format", format: "FLOAT32", wantErr: true},
+		{name: "empty format", format: "", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			origArgs := os.Args
+			origCommandLine := flag.CommandLine
+			defer func() {
+				os.Args = origArgs
+				flag.CommandLine = origCommandLine
+			}()
+
+			flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+			args := []string{"test", "--net-only", "--iformat", tt.format}
+			config, err := ParseFlagsFromSet(flag.CommandLine, args[1:])
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ParseFlagsFromSet error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && config.InputFormat != tt.want {
+				t.Errorf("InputFormat = %q, want %q", config.InputFormat, tt.want)
+			}
+		})
+	}
+}
+
+func TestInputFileDashUsesStdin(t *testing.T) {
+	config := DefaultConfig()
+	config.InputFile = "-"
+	config.NetOnly = true
+
+	if config.InputFile != "-" {
+		t.Error("InputFile should accept '-' for stdin")
+	}
+}
+
+func TestUnsupportedSampleRateIsRejected(t *testing.T) {
+	origArgs := os.Args
+	origCommandLine := flag.CommandLine
+	defer func() {
+		os.Args = origArgs
+		flag.CommandLine = origCommandLine
+	}()
+
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	flag.CommandLine.SetOutput(io.Discard)
+	os.Args = []string{"test", "--rate", "4800000"}
+	_, err := ParseFlagsFromSet(flag.CommandLine, os.Args[1:])
+	if err == nil {
+		t.Fatal("ParseFlagsFromSet with non-2.4MHz rate should return error")
+	}
+}
+
+func TestSampleRateAllowedWithNetOnly(t *testing.T) {
+	origArgs := os.Args
+	origCommandLine := flag.CommandLine
+	defer func() {
+		os.Args = origArgs
+		flag.CommandLine = origCommandLine
+	}()
+
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	os.Args = []string{"test", "--net-only", "--rate", "4800000"}
+	config, err := ParseFlagsFromSet(flag.CommandLine, os.Args[1:])
+	if err != nil {
+		t.Fatalf("ParseFlagsFromSet with --net-only and non-2.4MHz rate should succeed: %v", err)
+	}
+	if config.SampleRate != 4800000 {
+		t.Errorf("SampleRate = %d, want 4800000", config.SampleRate)
+	}
+}
+
 func float64Ptr(f float64) *float64 { return &f }

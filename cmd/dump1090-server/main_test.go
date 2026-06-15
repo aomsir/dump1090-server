@@ -1,11 +1,18 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"reflect"
 	"testing"
+	"time"
+
+	"github.com/aomsir/dump1090-server/modes"
 )
 
 func TestModeACDisabledByDefault(t *testing.T) {
@@ -390,3 +397,253 @@ func TestPortListValueSetError(t *testing.T) {
 		t.Error("portListValue.Set with duplicates should return error")
 	}
 }
+
+// newTestApp creates a minimal App for HTTP handler tests.
+// It sets up a tracker, stats collector, and optionally a JSONWriter.
+func newTestApp(config *Config) *App {
+	tracker := modes.NewTracker()
+	statsCollector := modes.NewStatsCollector()
+	app := &App{
+		config:         config,
+		tracker:        tracker,
+		statsCollector: statsCollector,
+	}
+	return app
+}
+
+func TestHTTPHistoryRouteMatchesHistoryFiles(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "dump1090-http-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	app := newTestApp(&Config{
+		WriteJSON:       tmpDir,
+		HistorySize:     10,
+		HistoryInterval: 30,
+		WriteJSONEvery:  1.0,
+	})
+	app.jsonWriter = modes.NewJSONWriter(modes.JSONWriterConfig{
+		Dir:             tmpDir,
+		HistorySize:     10,
+		HistoryInterval: 30000,
+		Version:         "1.0.0",
+	}, app.tracker, &app.totalMessages)
+	app.jsonWriter.SetStatsCollector(app.statsCollector)
+
+	// Trigger a history write by calling PeriodicUpdate after initial files
+	app.jsonWriter.WriteInitialFiles()
+
+	// The first periodic update after WriteInitialFiles should write history_0.json
+	// We need to wait for the history interval to elapse.
+	// For testing, use a short interval.
+	app.jsonWriter = modes.NewJSONWriter(modes.JSONWriterConfig{
+		Dir:             tmpDir,
+		HistorySize:     10,
+		HistoryInterval: 100, // 100ms
+		Version:         "1.0.0",
+	}, app.tracker, &app.totalMessages)
+	app.jsonWriter.SetStatsCollector(app.statsCollector)
+	app.jsonWriter.WriteInitialFiles()
+
+	// Wait for history interval and trigger update
+	time.Sleep(150 * time.Millisecond)
+	app.jsonWriter.PeriodicUpdate()
+
+	// Now test that the HTTP handler serves history_0.json
+	mux := app.newHTTPMux()
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/data/history_0.json")
+	if err != nil {
+		t.Fatalf("GET /data/history_0.json failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	if len(body) == 0 {
+		t.Fatal("expected non-empty history JSON")
+	}
+
+	// Should contain aircraft list structure
+	if !bytes.Contains(body, []byte(`"aircraft"`)) {
+		t.Error("history JSON should contain 'aircraft' field")
+	}
+}
+
+func TestHTTPReceiverJSONRefreshIsMilliseconds(t *testing.T) {
+	app := newTestApp(&Config{
+		WriteJSON:      "/tmp/test-json",
+		WriteJSONEvery: 1.0, // 1 second
+		HistorySize:    120,
+	})
+	app.jsonWriter = modes.NewJSONWriter(modes.JSONWriterConfig{
+		Dir:          "/tmp/test-json",
+		JSONInterval: 1000, // 1 second in ms
+		HistorySize:  120,
+		Version:      "1.0.0",
+	}, app.tracker, &app.totalMessages)
+
+	mux := app.newHTTPMux()
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/data/receiver.json")
+	if err != nil {
+		t.Fatalf("GET /data/receiver.json failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var receiver map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&receiver); err != nil {
+		t.Fatalf("failed to decode receiver.json: %v", err)
+	}
+
+	refresh, ok := receiver["refresh"].(float64)
+	if !ok {
+		t.Fatalf("refresh should be a number, got %T", receiver["refresh"])
+	}
+	if refresh != 1000.0 {
+		t.Errorf("refresh = %v, want 1000 (milliseconds)", refresh)
+	}
+}
+
+func TestHTTPReceiverJSONRespectsLocationAccuracy(t *testing.T) {
+	tests := []struct {
+		name     string
+		accuracy int
+		lat      float64
+		lon      float64
+		wantLat  *float64
+		wantLon  *float64
+	}{
+		{
+			name:     "accuracy 0 omits lat/lon",
+			accuracy: 0,
+			lat:      51.5074,
+			lon:      -0.1278,
+			wantLat:  nil,
+			wantLon:  nil,
+		},
+		{
+			name:     "accuracy 1 rounds to 2dp",
+			accuracy: 1,
+			lat:      51.5074,
+			lon:      -0.1278,
+			wantLat:  float64Ptr(51.51),
+			wantLon:  float64Ptr(-0.13),
+		},
+		{
+			name:     "accuracy 2 preserves exact values",
+			accuracy: 2,
+			lat:      51.5074,
+			lon:      -0.1278,
+			wantLat:  float64Ptr(51.5074),
+			wantLon:  float64Ptr(-0.1278),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := newTestApp(&Config{
+				WriteJSON:        "/tmp/test-json",
+				WriteJSONEvery:   1.0,
+				HistorySize:      120,
+				Latitude:         tt.lat,
+				Longitude:        tt.lon,
+				LocationAccuracy: tt.accuracy,
+			})
+			app.jsonWriter = modes.NewJSONWriter(modes.JSONWriterConfig{
+				Dir:              "/tmp/test-json",
+				JSONInterval:     1000,
+				HistorySize:      120,
+				ReceiverLat:      tt.lat,
+				ReceiverLon:      tt.lon,
+				LocationAccuracy: tt.accuracy,
+				Version:          "1.0.0",
+			}, app.tracker, &app.totalMessages)
+
+			mux := app.newHTTPMux()
+			ts := httptest.NewServer(mux)
+			defer ts.Close()
+
+			resp, err := http.Get(ts.URL + "/data/receiver.json")
+			if err != nil {
+				t.Fatalf("GET /data/receiver.json failed: %v", err)
+			}
+			defer resp.Body.Close()
+
+			var receiver map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&receiver); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+
+			lat, hasLat := receiver["lat"]
+			lon, hasLon := receiver["lon"]
+
+			if tt.wantLat == nil {
+				if hasLat {
+					t.Errorf("lat should be omitted, got %v", lat)
+				}
+				if hasLon {
+					t.Errorf("lon should be omitted, got %v", lon)
+				}
+			} else {
+				if !hasLat {
+					t.Fatal("lat should be present")
+				}
+				gotLat := lat.(float64)
+				if gotLat != *tt.wantLat {
+					t.Errorf("lat = %v, want %v", gotLat, *tt.wantLat)
+				}
+				gotLon := lon.(float64)
+				if gotLon != *tt.wantLon {
+					t.Errorf("lon = %v, want %v", gotLon, *tt.wantLon)
+				}
+			}
+		})
+	}
+}
+
+func TestHTTPStatsJSONUsesFullSchema(t *testing.T) {
+	app := newTestApp(&Config{})
+	app.jsonWriter = modes.NewJSONWriter(modes.JSONWriterConfig{
+		Dir:          "/tmp/test-json",
+		JSONInterval: 1000,
+		HistorySize:  120,
+		Version:      "1.0.0",
+	}, app.tracker, &app.totalMessages)
+	app.jsonWriter.SetStatsCollector(app.statsCollector)
+
+	mux := app.newHTTPMux()
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/data/stats.json")
+	if err != nil {
+		t.Fatalf("GET /data/stats.json failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	var stats map[string]interface{}
+	if err := json.Unmarshal(body, &stats); err != nil {
+		t.Fatalf("stats.json is not valid JSON: %v\nbody: %s", err, string(body))
+	}
+
+	requiredKeys := []string{"latest", "last1min", "last5min", "last15min", "total"}
+	for _, key := range requiredKeys {
+		if _, ok := stats[key]; !ok {
+			t.Errorf("stats.json missing required key %q", key)
+		}
+	}
+}
+
+func float64Ptr(f float64) *float64 { return &f }

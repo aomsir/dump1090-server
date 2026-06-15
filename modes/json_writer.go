@@ -312,18 +312,25 @@ func (w *JSONWriter) generateReceiverJSON() []byte {
 	historyCount := w.getHistoryCount()
 	w.mu.Unlock()
 
-	var buf []byte
-	buf = append(buf, fmt.Sprintf("{ \"version\" : \"%s\", ", w.version)...)
-	buf = append(buf, fmt.Sprintf("\"refresh\" : %.0f, ", float64(w.jsonInterval))...)
-	buf = append(buf, fmt.Sprintf("\"history\" : %d", historyCount)...)
+	receiver := GenerateReceiverJSONWithAccuracy(ReceiverJSONParams{
+		Version:          w.version,
+		RefreshMs:        w.jsonInterval,
+		History:          historyCount,
+		Lat:              w.receiverLat,
+		Lon:              w.receiverLon,
+		LocationAccuracy: w.locationAccuracy,
+	})
 
-	if w.locationAccuracy > 0 && (w.receiverLat != 0 || w.receiverLon != 0) {
+	var buf []byte
+	buf = append(buf, fmt.Sprintf("{ \"version\" : \"%s\", ", receiver.Version)...)
+	buf = append(buf, fmt.Sprintf("\"refresh\" : %.0f, ", receiver.Refresh)...)
+	buf = append(buf, fmt.Sprintf("\"history\" : %d", receiver.History)...)
+
+	if receiver.Lat != 0 || receiver.Lon != 0 {
 		if w.locationAccuracy == 1 {
-			// Rough location (2 decimal places ~1km accuracy)
-			buf = append(buf, fmt.Sprintf(", \"lat\" : %.2f, \"lon\" : %.2f", w.receiverLat, w.receiverLon)...)
+			buf = append(buf, fmt.Sprintf(", \"lat\" : %.2f, \"lon\" : %.2f", receiver.Lat, receiver.Lon)...)
 		} else {
-			// Exact location
-			buf = append(buf, fmt.Sprintf(", \"lat\" : %.6f, \"lon\" : %.6f", w.receiverLat, w.receiverLon)...)
+			buf = append(buf, fmt.Sprintf(", \"lat\" : %.6f, \"lon\" : %.6f", receiver.Lat, receiver.Lon)...)
 		}
 	}
 
@@ -575,7 +582,7 @@ func (w *JSONWriter) PeriodicUpdate() bool {
 	return written
 }
 
-// WriteInitialFiles writes the initial JSON files (receiver.json, aircraft.json)
+// WriteInitialFiles writes the initial JSON files (receiver.json, aircraft.json, stats.json)
 func (w *JSONWriter) WriteInitialFiles() {
 	if w.dir == "" {
 		return
@@ -587,6 +594,7 @@ func (w *JSONWriter) WriteInitialFiles() {
 	// Write initial files
 	w.writeJsonToFile("receiver.json", w.generateReceiverJSON())
 	w.writeJsonToFile("aircraft.json", w.generateAircraftJSON())
+	w.writeJsonToFile("stats.json", w.generateStatsJSON())
 	w.receiverWritten = true
 
 	// Initialize timing
@@ -615,6 +623,19 @@ func (w *JSONWriter) GetHistorySize() int {
 // GetJSONInterval returns the configured JSON interval in milliseconds
 func (w *JSONWriter) GetJSONInterval() int {
 	return w.jsonInterval
+}
+
+// GetHistoryCount returns the number of valid history entries (thread-safe)
+func (w *JSONWriter) GetHistoryCount() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.getHistoryCount()
+}
+
+// GenerateStatsJSONBytes returns the stats JSON content. This is the shared
+// accessor used by both HTTP handlers and file writing.
+func (w *JSONWriter) GenerateStatsJSONBytes() []byte {
+	return w.generateStatsJSON()
 }
 
 // Helper functions

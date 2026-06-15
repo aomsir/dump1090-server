@@ -9,7 +9,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -630,85 +629,7 @@ func (app *App) processFile(filename string) error {
 func (app *App) runHTTPServer() {
 	defer app.wg.Done()
 
-	mux := http.NewServeMux()
-
-	// Aircraft JSON endpoint
-	mux.HandleFunc("/data/aircraft.json", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-
-		data, err := modes.MarshalAircraftJSON(app.tracker, atomic.LoadUint64(&app.totalMessages))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Write(data)
-	})
-
-	// Receiver JSON endpoint
-	mux.HandleFunc("/data/receiver.json", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-
-		// If JSON writer is enabled, use its receiver.json format
-		if app.jsonWriter != nil {
-			historyCount := 0
-			for i := 0; i < app.jsonWriter.GetHistorySize(); i++ {
-				if app.jsonWriter.GetHistoryJSON(i) != nil {
-					historyCount++
-				}
-			}
-			receiver := modes.GenerateReceiverJSON("1.0.0",
-				float64(app.jsonWriter.GetJSONInterval())/1000.0,
-				historyCount, app.config.Latitude, app.config.Longitude)
-			data, _ := json.MarshalIndent(receiver, "", "  ")
-			w.Write(data)
-		} else {
-			receiver := modes.GenerateReceiverJSON("1.0.0", 1.0, 120, app.config.Latitude, app.config.Longitude)
-			data, _ := json.MarshalIndent(receiver, "", "  ")
-			w.Write(data)
-		}
-	})
-
-	// Stats endpoint
-	mux.HandleFunc("/data/stats.json", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-
-		fmt.Fprintf(w, `{"messages":%d,"valid":%d,"decoded":%d}`,
-			atomic.LoadUint64(&app.totalMessages),
-			atomic.LoadUint64(&app.validMessages),
-			atomic.LoadUint64(&app.decodedMessages))
-	})
-
-	// History JSON endpoints (if JSON writer is enabled)
-	mux.HandleFunc("/data/history_", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-
-		if app.jsonWriter == nil {
-			http.NotFound(w, r)
-			return
-		}
-
-		// Parse history index from URL (e.g., /data/history_0.json)
-		path := r.URL.Path
-		var index int
-		_, err := fmt.Sscanf(path, "/data/history_%d.json", &index)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-
-		// Get history content
-		content := app.jsonWriter.GetHistoryJSON(index)
-		if content == nil {
-			http.NotFound(w, r)
-			return
-		}
-
-		w.Write(content)
-	})
+	mux := app.newHTTPMux()
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", app.config.NetBindAddress, app.config.HTTPPort),

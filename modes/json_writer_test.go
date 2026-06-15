@@ -4,6 +4,7 @@
 package modes
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -297,5 +298,120 @@ func TestJSONWriterHistoryCount(t *testing.T) {
 	// Initially should be 0
 	if w.getHistoryCount() != 0 {
 		t.Errorf("Initial history count = %d, want 0", w.getHistoryCount())
+	}
+}
+
+func TestWriteInitialFilesWritesStatsJSON(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "dump1090-json-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	tracker := NewTracker()
+	var totalMessages uint64
+
+	sc := NewStatsCollector()
+	w := NewJSONWriter(JSONWriterConfig{
+		Dir:     tmpDir,
+		Version: "1.0.0",
+	}, tracker, &totalMessages)
+	w.SetStatsCollector(sc)
+	w.WriteInitialFiles()
+
+	if _, err := os.Stat(filepath.Join(tmpDir, "stats.json")); os.IsNotExist(err) {
+		t.Error("stats.json not created by WriteInitialFiles")
+	}
+}
+
+func TestJSONStatsFullSchema(t *testing.T) {
+	tracker := NewTracker()
+	var totalMessages uint64
+
+	sc := NewStatsCollector()
+	w := NewJSONWriter(JSONWriterConfig{
+		Dir:     "/tmp/test-json",
+		Version: "1.0.0",
+	}, tracker, &totalMessages)
+	w.SetStatsCollector(sc)
+
+	statsJSON := w.generateStatsJSON()
+
+	var stats map[string]interface{}
+	if err := json.Unmarshal(statsJSON, &stats); err != nil {
+		t.Fatalf("stats JSON is not valid: %v\nbody: %s", err, string(statsJSON))
+	}
+
+	requiredKeys := []string{"latest", "last1min", "last5min", "last15min", "total"}
+	for _, key := range requiredKeys {
+		if _, ok := stats[key]; !ok {
+			t.Errorf("stats JSON missing required key %q", key)
+		}
+	}
+}
+
+func TestSharedReceiverJSONMilliseconds(t *testing.T) {
+	r := GenerateReceiverJSONWithAccuracy(ReceiverJSONParams{
+		Version:          "1.0.0",
+		RefreshMs:        1000,
+		History:          120,
+		Lat:              51.5074,
+		Lon:              -0.1278,
+		LocationAccuracy: 2,
+	})
+
+	if r.Refresh != 1000 {
+		t.Errorf("Refresh = %v, want 1000 (milliseconds)", r.Refresh)
+	}
+}
+
+func TestSharedReceiverJSONAccuracy0OmitsLocation(t *testing.T) {
+	r := GenerateReceiverJSONWithAccuracy(ReceiverJSONParams{
+		Version:          "1.0.0",
+		RefreshMs:        1000,
+		History:          120,
+		Lat:              51.5074,
+		Lon:              -0.1278,
+		LocationAccuracy: 0,
+	})
+
+	if r.Lat != 0 || r.Lon != 0 {
+		t.Errorf("accuracy 0 should omit lat/lon, got lat=%v lon=%v", r.Lat, r.Lon)
+	}
+}
+
+func TestSharedReceiverJSONAccuracy1Rounds(t *testing.T) {
+	r := GenerateReceiverJSONWithAccuracy(ReceiverJSONParams{
+		Version:          "1.0.0",
+		RefreshMs:        1000,
+		History:          120,
+		Lat:              51.5074,
+		Lon:              -0.1278,
+		LocationAccuracy: 1,
+	})
+
+	if r.Lat != 51.51 {
+		t.Errorf("accuracy 1 lat = %v, want 51.51", r.Lat)
+	}
+	if r.Lon != -0.13 {
+		t.Errorf("accuracy 1 lon = %v, want -0.13", r.Lon)
+	}
+}
+
+func TestSharedReceiverJSONAccuracy2Exact(t *testing.T) {
+	r := GenerateReceiverJSONWithAccuracy(ReceiverJSONParams{
+		Version:          "1.0.0",
+		RefreshMs:        1000,
+		History:          120,
+		Lat:              51.5074,
+		Lon:              -0.1278,
+		LocationAccuracy: 2,
+	})
+
+	if r.Lat != 51.5074 {
+		t.Errorf("accuracy 2 lat = %v, want 51.5074", r.Lat)
+	}
+	if r.Lon != -0.1278 {
+		t.Errorf("accuracy 2 lon = %v, want -0.1278", r.Lon)
 	}
 }

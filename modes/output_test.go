@@ -329,6 +329,17 @@ func TestEncodeSBS(t *testing.T) {
 			want:    []string{"MSG,8,", "4840D6", "8000"},
 		},
 		{
+			name: "DF11 all-call reply without altitude",
+			msg: &Message{
+				Msg:     [14]byte{0x5D, 0x48, 0x40, 0xD6, 0x00, 0x00, 0x00},
+				MsgBits: 56,
+				MsgType: 11,
+				Addr:    0x4840D6,
+			},
+			wantMsg: 8,
+			want:    []string{"MSG,8,", "4840D6"},
+		},
+		{
 			name: "DF20 altitude from Comm-B",
 			msg: &Message{
 				Msg:           [14]byte{0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
@@ -735,6 +746,17 @@ func TestForwardingPolicySingleBitCorrectedAllowed(t *testing.T) {
 	dest := ForwardingDestination(msg, false, false)
 	if dest == DestNone {
 		t.Error("1-bit corrected messages should be forwarded")
+	}
+}
+
+func TestForwardingPolicyNilMessage(t *testing.T) {
+	dest := ForwardingDestination(nil, false, false)
+	if dest != DestNone {
+		t.Errorf("Nil message should return DestNone, got %v", dest)
+	}
+	dest = ForwardingDestination(nil, true, true)
+	if dest != DestNone {
+		t.Errorf("Nil message should return DestNone regardless of config, got %v", dest)
 	}
 }
 

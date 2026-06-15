@@ -111,6 +111,10 @@ type StatsCollector struct {
 
 	// Next update time
 	nextUpdate uint64 // Unix milliseconds
+
+	// clock returns the current time in Unix milliseconds. Defaults to
+	// time.Now().UnixMilli() but can be overridden for testing.
+	clock func() uint64
 }
 
 // NewStatsCollector creates a new statistics collector
@@ -118,7 +122,8 @@ func NewStatsCollector() *StatsCollector {
 	now := uint64(time.Now().UnixMilli())
 	sc := &StatsCollector{
 		latestIndex: STATS_HISTORY_SIZE - 1, // Will wrap to 0 on first update
-		nextUpdate:  now + 60000,             // First update in 60 seconds
+		nextUpdate:  now + 60000,            // First update in 60 seconds
+		clock:       func() uint64 { return uint64(time.Now().UnixMilli()) },
 	}
 	sc.current.Start = now
 	sc.current.End = now
@@ -251,6 +256,43 @@ func (sc *StatsCollector) AddMessage() {
 	sc.current.MessagesTotal++
 }
 
+// AddRemoteMessage records a message received from a remote network source.
+// modeAC is true for Mode A/C messages. bitErrors is the number of corrected
+// bit errors (0 for correct CRC). isUnknownICAO is true if the ICAO was not recognized.
+func (sc *StatsCollector) AddRemoteMessage(modeAC bool, bitErrors int, isUnknownICAO bool) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	if modeAC {
+		sc.current.RemoteReceivedModeAC++
+	} else {
+		sc.current.RemoteReceivedModes++
+	}
+
+	if isUnknownICAO {
+		sc.current.RemoteRejectedUnknownICAO++
+	} else if bitErrors < 0 {
+		sc.current.RemoteRejectedBad++
+	} else if bitErrors >= 0 && bitErrors <= MODES_MAX_BITERRORS {
+		sc.current.RemoteAccepted[bitErrors]++
+	}
+}
+
+// AddUniqueAircraft increments the unique aircraft counter for the current window.
+func (sc *StatsCollector) AddUniqueAircraft() {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.current.UniqueAircraft++
+}
+
+// AddSingleMessageAircraft increments the single-message aircraft counter
+// for the current window.
+func (sc *StatsCollector) AddSingleMessageAircraft() {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.current.SingleMessageAircraft++
+}
+
 // AddRangeHistogram updates the range histogram with a decoded position
 // receiverLat/receiverLon: receiver position in degrees
 // lat/lon: aircraft position in degrees
@@ -304,7 +346,7 @@ func (sc *StatsCollector) AddRangeHistogram(receiverLat, receiverLon, lat, lon, 
 // Update should be called periodically (e.g., every second) to check if
 // a 1-minute period has completed and update aggregate statistics
 func (sc *StatsCollector) Update() {
-	now := uint64(time.Now().UnixMilli())
+	now := sc.clock()
 
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
@@ -351,8 +393,16 @@ func (sc *StatsCollector) Update() {
 	sc.nextUpdate = now + 60000
 }
 
-// GetLatest returns the most recent complete 1-minute period
+// GetLatest returns the current in-progress 1-minute window.
+// This reflects counters added since the last rotation.
 func (sc *StatsCollector) GetLatest() Stats {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.current
+}
+
+// GetLast1Min returns the most recently completed (rotated) 1-minute window.
+func (sc *StatsCollector) GetLast1Min() Stats {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	return sc.history[sc.latestIndex]
@@ -372,11 +422,14 @@ func (sc *StatsCollector) GetLast15Min() Stats {
 	return sc.last15Min
 }
 
-// GetAllTime returns cumulative stats since startup
+// GetAllTime returns cumulative stats since startup, including the current
+// in-progress window.
 func (sc *StatsCollector) GetAllTime() Stats {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
-	return sc.allTime
+	result := sc.allTime
+	addStats(&sc.current, &result)
+	return result
 }
 
 // GetCurrent returns the current in-progress statistics

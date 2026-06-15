@@ -65,6 +65,7 @@ func GenerateStatsJSON(sc *StatsCollector) []byte {
 	}
 
 	latest := sc.GetLatest()
+	last1min := sc.GetLast1Min()
 	last5min := sc.GetLast5Min()
 	last15min := sc.GetLast15Min()
 	total := sc.GetAllTime()
@@ -75,7 +76,7 @@ func GenerateStatsJSON(sc *StatsCollector) []byte {
 	buf = append(buf, formatStatsBlock(&latest, true)...)
 	buf = append(buf, ",\n"...)
 	buf = append(buf, "  \"last1min\" : "...)
-	buf = append(buf, formatStatsBlock(&latest, true)...)
+	buf = append(buf, formatStatsBlock(&last1min, true)...)
 	buf = append(buf, ",\n"...)
 	buf = append(buf, "  \"last5min\" : "...)
 	buf = append(buf, formatStatsBlock(&last5min, false)...)

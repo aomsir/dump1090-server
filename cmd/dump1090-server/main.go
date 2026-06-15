@@ -468,6 +468,11 @@ func (app *App) handleSamples(iq []byte) {
 func (app *App) handleMessage(mm *modes.Message) {
 	atomic.AddUint64(&app.totalMessages, 1)
 
+	// Increment stats collector message counter
+	if app.statsCollector != nil {
+		app.statsCollector.AddMessage()
+	}
+
 	// Message is already decoded by the demodulator
 	// Just count valid messages
 	atomic.AddUint64(&app.validMessages, 1)
@@ -493,6 +498,13 @@ func (app *App) handleMessage(mm *modes.Message) {
 				app.demod.AddKnownICAO(mm.Addr)
 			}
 		}
+	}
+
+	// Track remote message stats for network-sourced messages
+	if mm.Remote && app.statsCollector != nil {
+		isModeAC := mm.MsgType == 32
+		isUnknownICAO := !isModeAC && aircraft == nil && mm.Corrected == 0
+		app.statsCollector.AddRemoteMessage(isModeAC, mm.Corrected, isUnknownICAO)
 	}
 
 	// Broadcast to network clients

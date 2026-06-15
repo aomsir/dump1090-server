@@ -202,6 +202,9 @@ func (t *Tracker) UpdateFromMessage(mm *Message) *Aircraft {
 		a = t.createAircraft(mm)
 		t.aircraft[mm.Addr] = a
 		t.stats.uniqueAircraft++
+		if t.statsCollector != nil {
+			t.statsCollector.AddUniqueAircraft()
+		}
 	}
 
 	// Update signal level
@@ -462,6 +465,9 @@ func (t *Tracker) PeriodicUpdate() {
 		if age > TRACK_AIRCRAFT_TTL || (a.Messages == 1 && age > TRACK_AIRCRAFT_ONEHIT_TTL) {
 			if a.Messages == 1 {
 				t.stats.singleMessageAircraft++
+				if t.statsCollector != nil {
+					t.statsCollector.AddSingleMessageAircraft()
+				}
 			}
 			delete(t.aircraft, addr)
 			continue

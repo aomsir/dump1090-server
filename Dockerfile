@@ -25,9 +25,9 @@ FROM scratch
 
 COPY --from=builder /build/bin/dump1090-server /dump1090-server
 
-EXPOSE 30001 30002 30003 30004 30005
+EXPOSE 30001 30002 30003 30004 30005 8080 10001
 
 USER 1000:1000
 
 ENTRYPOINT ["/dump1090-server"]
-CMD ["--net-only"]
+CMD ["--net-only", "--net"]

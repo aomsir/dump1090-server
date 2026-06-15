@@ -38,10 +38,19 @@ For RTL-SDR hardware support:
 
 ### Docker
 
+The default Docker image runs in **network-only mode** and does **not** access USB RTL-SDR hardware.
+
 ```bash
 docker build -t dump1090-server .
-docker run -p 30002:30002 -p 30003:30003 -p 30005:30005 dump1090-server --net-only
+
+# Run with data ports exposed (default: --net-only --net)
+docker run -p 30002:30002 -p 30003:30003 -p 30005:30005 dump1090-server
+
+# Run with all default ports (including HTTP API and FATSV)
+docker run -p 30001:30001 -p 30002:30002 -p 30003:30003 -p 30004:30004 -p 30005:30005 -p 8080:8080 -p 10001:10001 dump1090-server
 ```
+
+To use RTL-SDR hardware, build with CGO and run with `--privileged` or `--device` flags outside Docker.
 
 ## Usage
 

@@ -117,6 +117,9 @@ func NewJSONWriter(cfg JSONWriterConfig, tracker *Tracker, totalMessages *uint64
 	return w
 }
 
+// restoreHistoryFromDisk reads usable history_N.json files into the in-memory
+// ring. This eagerly loads all file contents because GetHistoryJSON serves from
+// the ring. For very large historySize values this may use significant memory.
 func (w *JSONWriter) restoreHistoryFromDisk() {
 	if w.dir == "" || w.historySize <= 0 {
 		return
@@ -177,7 +180,7 @@ func parseHistoryIndex(name string) (int, bool) {
 		return 0, false
 	}
 	index, err := strconv.Atoi(indexText)
-	if err != nil {
+	if err != nil || index < 0 {
 		return 0, false
 	}
 	return index, true

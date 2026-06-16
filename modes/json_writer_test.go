@@ -526,6 +526,21 @@ func TestJSONWriterHistoryCountIncreasesFromRestoredSparseHistory(t *testing.T) 
 	}
 }
 
+func TestJSONWriterNonexistentDir(t *testing.T) {
+	tracker := NewTracker()
+	var totalMessages uint64
+
+	nonexistent := filepath.Join(t.TempDir(), "does-not-exist")
+	w := NewJSONWriter(JSONWriterConfig{
+		Dir:         nonexistent,
+		HistorySize: 5,
+	}, tracker, &totalMessages)
+
+	if got := w.GetHistoryCount(); got != 0 {
+		t.Errorf("history count for nonexistent dir = %d, want 0", got)
+	}
+}
+
 func writeHistoryFile(t *testing.T, dir string, index int, content []byte, modTime time.Time) {
 	t.Helper()
 	path := filepath.Join(dir, fmt.Sprintf("history_%d.json", index))

@@ -13,6 +13,8 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -50,6 +52,7 @@ type JSONWriter struct {
 	// State
 	history         []HistoryEntry
 	historyNext     int    // Next history index to write
+	historyCount    int    // Number of valid history entries currently known
 	nextJSON        uint64 // Next time to write aircraft.json
 	nextHistory     uint64 // Next time to write history
 	nextStats       uint64 // Next time to write stats.json
@@ -96,7 +99,7 @@ func NewJSONWriter(cfg JSONWriterConfig, tracker *Tracker, totalMessages *uint64
 		cfg.Version = "1.0"
 	}
 
-	return &JSONWriter{
+	w := &JSONWriter{
 		dir:              cfg.Dir,
 		jsonInterval:     cfg.JSONInterval,
 		historySize:      cfg.HistorySize,
@@ -110,6 +113,78 @@ func NewJSONWriter(cfg JSONWriterConfig, tracker *Tracker, totalMessages *uint64
 		tracker:          tracker,
 		totalMessages:    totalMessages,
 	}
+	w.restoreHistoryFromDisk()
+	return w
+}
+
+func (w *JSONWriter) restoreHistoryFromDisk() {
+	if w.dir == "" || w.historySize <= 0 {
+		return
+	}
+
+	entries, err := os.ReadDir(w.dir)
+	if err != nil {
+		return
+	}
+
+	newestIndex := -1
+	var newestTime time.Time
+	restored := 0
+	seen := make(map[int]struct{})
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		index, ok := parseHistoryIndex(entry.Name())
+		if !ok || index < 0 || index >= w.historySize {
+			continue
+		}
+
+		path := filepath.Join(w.dir, entry.Name())
+		content, err := os.ReadFile(path)
+		if err != nil || len(content) == 0 {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		w.history[index].Content = content
+		if _, exists := seen[index]; !exists {
+			restored++
+			seen[index] = struct{}{}
+		}
+
+		modTime := info.ModTime()
+		if newestIndex == -1 || modTime.After(newestTime) {
+			newestIndex = index
+			newestTime = modTime
+		}
+	}
+
+	w.historyCount = restored
+	if newestIndex >= 0 {
+		w.historyNext = (newestIndex + 1) % w.historySize
+	}
+}
+
+func parseHistoryIndex(name string) (int, bool) {
+	if !strings.HasPrefix(name, "history_") || !strings.HasSuffix(name, ".json") {
+		return 0, false
+	}
+	indexText := strings.TrimSuffix(strings.TrimPrefix(name, "history_"), ".json")
+	if indexText == "" {
+		return 0, false
+	}
+	index, err := strconv.Atoi(indexText)
+	if err != nil {
+		return 0, false
+	}
+	return index, true
 }
 
 // SetStatsCollector sets the statistics collector reference
@@ -328,11 +403,7 @@ func (w *JSONWriter) generateReceiverJSON() []byte {
 
 // getHistoryCount returns the number of valid history entries
 func (w *JSONWriter) getHistoryCount() int {
-	// If the last entry is empty, we haven't wrapped yet
-	if w.history[w.historySize-1].Content == nil {
-		return w.historyNext
-	}
-	return w.historySize
+	return w.historyCount
 }
 
 // generateStatsJSON generates stats.json content matching C version format
@@ -496,8 +567,11 @@ func (w *JSONWriter) PeriodicUpdate() bool {
 		filename := fmt.Sprintf("history_%d.json", w.historyNext)
 		w.writeJsonToFile(filename, content)
 
-		// Advance history index
+		// Advance history index and update count
 		w.historyNext = (w.historyNext + 1) % w.historySize
+		if w.historyCount < w.historySize {
+			w.historyCount++
+		}
 		newCount := w.getHistoryCount()
 
 		w.mu.Unlock()

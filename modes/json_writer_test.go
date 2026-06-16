@@ -5,6 +5,7 @@ package modes
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -419,5 +420,88 @@ func TestSharedReceiverJSONAccuracy2Exact(t *testing.T) {
 	}
 	if r.Lon != -0.1278 {
 		t.Errorf("accuracy 2 lon = %v, want -0.1278", r.Lon)
+	}
+}
+
+func TestJSONWriterRestoresHistoryFromDisk(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeHistoryFile(t, tmpDir, 0, []byte(`{"now":1,"aircraft":[]}`), time.Unix(100, 0))
+	writeHistoryFile(t, tmpDir, 1, []byte(`{"now":2,"aircraft":[]}`), time.Unix(200, 0))
+
+	tracker := NewTracker()
+	var totalMessages uint64
+	w := NewJSONWriter(JSONWriterConfig{
+		Dir:         tmpDir,
+		HistorySize: 5,
+	}, tracker, &totalMessages)
+
+	if got := w.GetHistoryCount(); got != 2 {
+		t.Fatalf("history count = %d, want 2", got)
+	}
+	if got := string(w.GetHistoryJSON(0)); got != `{"now":1,"aircraft":[]}` {
+		t.Errorf("history_0 content = %q", got)
+	}
+	if got := string(w.GetHistoryJSON(1)); got != `{"now":2,"aircraft":[]}` {
+		t.Errorf("history_1 content = %q", got)
+	}
+}
+
+func TestJSONWriterRestoreSetsNextWriteAfterNewestHistoryFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeHistoryFile(t, tmpDir, 0, []byte(`{"now":1,"aircraft":[]}`), time.Unix(300, 0))
+	writeHistoryFile(t, tmpDir, 1, []byte(`{"now":2,"aircraft":[]}`), time.Unix(100, 0))
+
+	tracker := NewTracker()
+	var totalMessages uint64
+	w := NewJSONWriter(JSONWriterConfig{
+		Dir:             tmpDir,
+		HistorySize:     3,
+		HistoryInterval: 100,
+	}, tracker, &totalMessages)
+	w.nextHistory = 0
+	w.PeriodicUpdate()
+
+	if got := string(w.GetHistoryJSON(1)); got == `{"now":2,"aircraft":[]}` {
+		t.Error("history_1 should have been overwritten by the next ring write")
+	}
+	if got := w.GetHistoryJSON(2); got != nil {
+		t.Errorf("history_2 should not have been written; got %q", got)
+	}
+}
+
+func TestJSONWriterRestoreIgnoresOutOfRangeAndEmptyHistoryFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeHistoryFile(t, tmpDir, 1, []byte(`{"now":2,"aircraft":[]}`), time.Unix(200, 0))
+	writeHistoryFile(t, tmpDir, 5, []byte(`{"now":5,"aircraft":[]}`), time.Unix(500, 0))
+	if err := os.WriteFile(filepath.Join(tmpDir, "history_2.json"), nil, 0644); err != nil {
+		t.Fatalf("failed to write empty history file: %v", err)
+	}
+
+	tracker := NewTracker()
+	var totalMessages uint64
+	w := NewJSONWriter(JSONWriterConfig{
+		Dir:         tmpDir,
+		HistorySize: 3,
+	}, tracker, &totalMessages)
+
+	if got := w.GetHistoryCount(); got != 1 {
+		t.Fatalf("history count = %d, want 1", got)
+	}
+	if got := string(w.GetHistoryJSON(1)); got != `{"now":2,"aircraft":[]}` {
+		t.Errorf("history_1 content = %q", got)
+	}
+	if got := w.GetHistoryJSON(2); got != nil {
+		t.Errorf("empty history_2 should not be restored; got %q", got)
+	}
+}
+
+func writeHistoryFile(t *testing.T, dir string, index int, content []byte, modTime time.Time) {
+	t.Helper()
+	path := filepath.Join(dir, fmt.Sprintf("history_%d.json", index))
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatalf("failed to write %s: %v", path, err)
+	}
+	if err := os.Chtimes(path, modTime, modTime); err != nil {
+		t.Fatalf("failed to set mtime for %s: %v", path, err)
 	}
 }

@@ -495,6 +495,37 @@ func TestJSONWriterRestoreIgnoresOutOfRangeAndEmptyHistoryFiles(t *testing.T) {
 	}
 }
 
+func TestJSONWriterHistoryCountIncreasesFromRestoredSparseHistory(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeHistoryFile(t, tmpDir, 4, []byte(`{"now":4,"aircraft":[]}`), time.Unix(400, 0))
+
+	tracker := NewTracker()
+	var totalMessages uint64
+	w := NewJSONWriter(JSONWriterConfig{
+		Dir:             tmpDir,
+		HistorySize:     6,
+		HistoryInterval: 100,
+	}, tracker, &totalMessages)
+
+	if got := w.GetHistoryCount(); got != 1 {
+		t.Fatalf("restored history count = %d, want 1", got)
+	}
+
+	w.nextHistory = 0
+	w.PeriodicUpdate()
+
+	if got := w.GetHistoryCount(); got != 2 {
+		t.Fatalf("history count after one new write = %d, want 2", got)
+	}
+
+	w.nextHistory = 0
+	w.PeriodicUpdate()
+
+	if got := w.GetHistoryCount(); got != 3 {
+		t.Fatalf("history count after two new writes = %d, want 3", got)
+	}
+}
+
 func writeHistoryFile(t *testing.T, dir string, index int, content []byte, modTime time.Time) {
 	t.Helper()
 	path := filepath.Join(dir, fmt.Sprintf("history_%d.json", index))

@@ -130,7 +130,6 @@ func (w *JSONWriter) restoreHistoryFromDisk() {
 	newestIndex := -1
 	var newestTime time.Time
 	restored := 0
-	seen := make(map[int]struct{})
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -154,10 +153,7 @@ func (w *JSONWriter) restoreHistoryFromDisk() {
 		}
 
 		w.history[index].Content = content
-		if _, exists := seen[index]; !exists {
-			restored++
-			seen[index] = struct{}{}
-		}
+		restored++
 
 		modTime := info.ModTime()
 		if newestIndex == -1 || modTime.After(newestTime) {
@@ -567,7 +563,11 @@ func (w *JSONWriter) PeriodicUpdate() bool {
 		filename := fmt.Sprintf("history_%d.json", w.historyNext)
 		w.writeJsonToFile(filename, content)
 
-		// Advance history index and update count
+		// Advance history index and update count.
+		// historyCount tracks how many ring slots are populated, up to
+		// historySize. It does not decrease when an existing slot is
+		// overwritten because the ring is considered full once every slot
+		// has been written at least once.
 		w.historyNext = (w.historyNext + 1) % w.historySize
 		if w.historyCount < w.historySize {
 			w.historyCount++

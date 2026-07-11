@@ -1,6 +1,7 @@
 package modes
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -80,6 +81,36 @@ func TestEncodeAVRTimestampMatchesUpstreamFormat(t *testing.T) {
 	expected := "@123456789ABC8D4840D6202CC371C32CE0576098;\n"
 	if result != expected {
 		t.Errorf("EncodeAVR() = %q, want %q", result, expected)
+	}
+}
+
+func TestEncodeAVRUntimedOutputParsesAsRawInput(t *testing.T) {
+	ModesChecksumInit(2)
+	original := &Message{
+		Msg:     [14]byte{0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3, 0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98},
+		MsgBits: 112,
+	}
+
+	encoded := EncodeAVR(original, false)
+	// Raw TCP input strips the first semicolon or newline delimiter before parsing.
+	delimiter := strings.IndexAny(encoded, ";\n")
+	if delimiter < 0 {
+		t.Fatalf("EncodeAVR() = %q, missing raw input delimiter", encoded)
+	}
+	parsed, err := ParseRawAVR(encoded[:delimiter], false)
+	if err != nil {
+		t.Fatalf("ParseRawAVR(EncodeAVR()) failed: %v", err)
+	}
+	if parsed == nil {
+		t.Fatal("ParseRawAVR(EncodeAVR()) returned nil message")
+	}
+	if parsed.MsgBits != original.MsgBits {
+		t.Fatalf("parsed MsgBits = %d, want %d", parsed.MsgBits, original.MsgBits)
+	}
+	for i := 0; i < original.MsgBits/8; i++ {
+		if parsed.Msg[i] != original.Msg[i] {
+			t.Fatalf("parsed Msg[%d] = %02X, want %02X", i, parsed.Msg[i], original.Msg[i])
+		}
 	}
 }
 

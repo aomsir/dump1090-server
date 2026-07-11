@@ -201,7 +201,7 @@ func TestEncodeAVR(t *testing.T) {
 				MsgBits: 56,
 			},
 			timestamp: false,
-			want:      "5D4840D6C38581;\n",
+			want:      "*5D4840D6C38581;\n",
 		},
 		{
 			name: "long message no timestamp",
@@ -210,7 +210,7 @@ func TestEncodeAVR(t *testing.T) {
 				MsgBits: 112,
 			},
 			timestamp: false,
-			want:      "8D4840D6202CC371C32CE0576098;\n",
+			want:      "*8D4840D6202CC371C32CE0576098;\n",
 		},
 		{
 			name: "with timestamp",

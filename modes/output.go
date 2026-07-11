@@ -369,11 +369,9 @@ func ForwardingDestination(mm *Message, netVerbatim, forwardMLAT bool) OutputDes
 
 // AVR format encoding
 
-// EncodeAVR encodes a message in AVR format (ASCII hex with optional timestamp).
+// EncodeAVR encodes a message in AVR format.
 // Format: *HEXMSG; or @TIMESTAMPHEXMSG;
-// Note: Untimed output intentionally omits * to match upstream dump1090-mutability format.
-// Timed format does NOT include * after timestamp (matching upstream format).
-// Parser still accepts *HEXMSG; for input compatibility.
+// Timed format does not include * after timestamp, matching upstream format.
 func EncodeAVR(mm *Message, includeTimestamp bool) string {
 	if mm == nil {
 		return ""
@@ -391,9 +389,10 @@ func EncodeAVR(mm *Message, includeTimestamp bool) string {
 		buf.WriteByte('@')
 		// Timestamp in hex (12 characters for 48-bit timestamp)
 		fmt.Fprintf(&buf, "%012X", mm.Timestamp&0xFFFFFFFFFFFF)
+	} else {
+		buf.WriteByte('*')
 	}
 
-	// No * separator before hex data
 	for i := 0; i < msgLen; i++ {
 		fmt.Fprintf(&buf, "%02X", mm.Msg[i])
 	}

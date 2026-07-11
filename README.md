@@ -1,4 +1,6 @@
-# dump1090-server
+<p align="center">
+  <img src="docs/assets/banner.svg" alt="dump1090-server — Pure Go Mode S / ADS-B Decoder" width="100%">
+</p>
 
 A pure Go implementation of dump1090, a Mode S ADS-B decoder for RTL-SDR devices.
 

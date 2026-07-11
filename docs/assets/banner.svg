@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">dump1090-server</title>
+  <desc id="desc">A transparent banner for dump1090-server, a pure Go Mode S and ADS-B decoder, featuring a radar display and an aircraft.</desc>
+  <style>
+    .eyebrow { fill: #545D68; }
+    @media (prefers-color-scheme: dark) { .eyebrow { fill: #B1BAC4; } }
+  </style>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M72 78H120" stroke="#58A6FF" stroke-width="4"/>
+      <path d="M72 92H102" stroke="#2DD4BF" stroke-width="4"/>
+      <path d="M72 106H88" stroke="#3FB950" stroke-width="4"/>
+    </g>
+
+    <text class="eyebrow" x="72" y="166" font-size="18" font-weight="700" letter-spacing="4">DECODED AIRSPACE</text>
+    <text x="72" y="232" fill="#6E7781" font-size="62" font-weight="700" letter-spacing="-3">dump1090</text>
+    <text x="416" y="232" fill="#218BFF" font-size="62" font-weight="700" letter-spacing="-3">server</text>
+    <text x="76" y="274" fill="#6E7781" font-size="22" letter-spacing="1">Pure Go Mode S / ADS-B Decoder</text>
+    <path d="M72 302H666" stroke="#8B949E" stroke-opacity=".35"/>
+    <text x="76" y="328" fill="#6E7781" font-size="15" letter-spacing="2">LIVE MODE S TELEMETRY / 1090 MHz</text>
+
+    <g transform="translate(916 184)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <circle r="138" stroke="#8B949E" stroke-opacity=".34" stroke-width="2"/>
+      <circle r="102" stroke="#58A6FF" stroke-opacity=".56" stroke-width="2"/>
+      <circle r="66" stroke="#2DD4BF" stroke-opacity=".68" stroke-width="2"/>
+      <circle r="30" stroke="#3FB950" stroke-opacity=".82" stroke-width="2"/>
+      <path d="M-154 0H154M0-154V154" stroke="#8B949E" stroke-opacity=".34"/>
+      <path d="M-110-110L110 110M-110 110L110-110" stroke="#58A6FF" stroke-opacity=".16"/>
+      <circle r="5" fill="#3FB950" stroke="none"/>
+
+      <path d="M-4 12L16-48L31-67L26-29L62-10L59 2L25-7L13 32L2 34L4-3L-33-9L-39-20L0-14Z" fill="#58A6FF" fill-opacity=".14" stroke="#58A6FF" stroke-width="3" transform="rotate(31)"/>
+      <path d="M-4 12L16-48L31-67L26-29L62-10L59 2L25-7L13 32L2 34L4-3L-33-9L-39-20L0-14Z" fill="none" stroke="#2DD4BF" stroke-width="2" transform="rotate(31)"/>
+
+      <path d="M30-94H66" stroke="#2DD4BF" stroke-width="2"/>
+      <text x="72" y="-89" fill="#6E7781" font-size="15" letter-spacing="1">ICAO A1B2C3</text>
+      <text x="72" y="-66" fill="#58A6FF" font-size="15" letter-spacing="1">FL340</text>
+      <path d="M-132 105H-78" stroke="#3FB950" stroke-width="2"/>
+      <text x="-132" y="130" fill="#6E7781" font-size="15" letter-spacing="1">52.31N 4.76E</text>
+      <text x="70" y="119" fill="#2DD4BF" font-size="15" font-weight="700" letter-spacing="1">1090 MHz</text>
+    </g>
+  </g>
+</svg>
